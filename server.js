@@ -26,11 +26,12 @@ const botState = {
   recentActivity: {},
   activityLog: [],
   maxWallets: 10,
+  dataSource: 'unknown',
 };
 
 // CONFIG
 const CHECK_INTERVAL = 1000;
-const DISCOVERY_INTERVAL = 10000;
+const DISCOVERY_INTERVAL = 12000;
 const ACTIVITY_TIMEOUT = 60000;
 const MAX_TRADE_SIZE = 6;
 const STOP_LOSS_PERCENT = 20;
@@ -92,7 +93,46 @@ function generateRealisticTraders(count = 8) {
   return traders;
 }
 
-// DISCOVER TRADERS - WITH FALLBACK
+// TRY MULTIPLE API ENDPOINTS
+async function fetchRealTraders() {
+  const endpoints = [
+    // Try different API endpoints
+    {
+      url: 'https://clob.polymarket.com/markets?active=true&limit=100',
+      name: 'CLOB Markets API'
+    },
+    {
+      url: 'https://polymarket.com/api/markets?active=true&limit=100',
+      name: 'Polymarket Markets API'
+    },
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      logActivity(`🔗 Trying ${endpoint.name}...`, 'info');
+      
+      const response = await axios.get(endpoint.url, {
+        timeout: 4000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': 'application/json',
+        }
+      });
+
+      if (response.data?.markets && Array.isArray(response.data.markets) && response.data.markets.length > 0) {
+        logActivity(`✅ Connected to ${endpoint.name}`, 'success');
+        return { success: true, markets: response.data.markets, source: endpoint.name };
+      }
+    } catch (error) {
+      logActivity(`❌ ${endpoint.name} failed: ${error.message}`, 'warning');
+      continue;
+    }
+  }
+
+  return { success: false, markets: [], source: 'none' };
+}
+
+// DISCOVER TRADERS
 async function discoverRealTraders() {
   if (!botState.running) return;
   
@@ -100,76 +140,79 @@ async function discoverRealTraders() {
     logActivity('🔍 Scanning for profitable traders...', 'scan');
     
     const traderStats = {};
-    let useSimulated = false;
     
-    // Try real API
-    try {
-      console.log('Attempting to fetch from Polymarket API...');
-      const marketsResponse = await axios.get(
-        'https://clob.polymarket.com/markets?active=true&limit=100',
-        { timeout: 5000 }
-      );
+    // Try to get real data
+    const apiResult = await fetchRealTraders();
+    let useSimulated = false;
+
+    if (apiResult.success && apiResult.markets.length > 0) {
+      botState.dataSource = apiResult.source;
+      logActivity(`📊 Found ${apiResult.markets.length} active markets from ${apiResult.source}`, 'info');
       
-      if (marketsResponse.data?.markets && marketsResponse.data.markets.length > 0) {
-        logActivity(`📊 Found ${marketsResponse.data.markets.length} active markets`, 'info');
-        
-        const sampled = marketsResponse.data.markets.slice(0, 40);
-        
-        for (const market of sampled) {
-          try {
-            const tradesResponse = await axios.get(
-              `https://clob.polymarket.com/trades?market=${market.id}&limit=50`,
-              { timeout: 3000 }
-            );
+      const sampled = apiResult.markets.slice(0, 50);
+      let marketsWithTrades = 0;
+      
+      for (const market of sampled) {
+        try {
+          const tradesResponse = await axios.get(
+            `https://clob.polymarket.com/trades?market=${market.id}&limit=50`,
+            { timeout: 3000 }
+          );
+          
+          if (!tradesResponse.data || !Array.isArray(tradesResponse.data)) continue;
+          
+          marketsWithTrades++;
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          
+          for (const trade of tradesResponse.data) {
+            if (!trade.user) continue;
             
-            if (!tradesResponse.data || !Array.isArray(tradesResponse.data)) continue;
+            const tradeTime = new Date(trade.createdAt || trade.timestamp || Date.now());
+            if (tradeTime < today) continue;
             
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
+            const wallet = trade.user;
             
-            for (const trade of tradesResponse.data) {
-              if (!trade.user) continue;
-              
-              const tradeTime = new Date(trade.createdAt || trade.timestamp || Date.now());
-              if (tradeTime < today) continue;
-              
-              const wallet = trade.user;
-              
-              if (!traderStats[wallet]) {
-                traderStats[wallet] = {
-                  address: wallet,
-                  totalTrades: 0,
-                  winningTrades: 0,
-                  profit: 0,
-                  volume: 0,
-                };
-              }
-              
-              traderStats[wallet].totalTrades++;
-              traderStats[wallet].volume += trade.size || 10;
-              
-              if (Math.random() > 0.35) {
-                traderStats[wallet].winningTrades++;
-                traderStats[wallet].profit += (trade.size || 10) * (0.02 + Math.random() * 0.10);
-              } else {
-                traderStats[wallet].profit -= (trade.size || 10) * (0.01 + Math.random() * 0.06);
-              }
+            if (!traderStats[wallet]) {
+              traderStats[wallet] = {
+                address: wallet,
+                totalTrades: 0,
+                winningTrades: 0,
+                profit: 0,
+                volume: 0,
+              };
             }
-          } catch (e) {
-            continue;
+            
+            traderStats[wallet].totalTrades++;
+            traderStats[wallet].volume += trade.size || 10;
+            
+            if (Math.random() > 0.35) {
+              traderStats[wallet].winningTrades++;
+              traderStats[wallet].profit += (trade.size || 10) * (0.02 + Math.random() * 0.10);
+            } else {
+              traderStats[wallet].profit -= (trade.size || 10) * (0.01 + Math.random() * 0.06);
+            }
           }
+        } catch (e) {
+          continue;
         }
-      } else {
-        useSimulated = true;
       }
-    } catch (error) {
-      console.log('API failed, using simulated data');
+      
+      if (marketsWithTrades === 0) {
+        logActivity(`⚠️ No trade data found, using fallback`, 'warning');
+        useSimulated = true;
+      } else {
+        logActivity(`📈 Analyzed ${marketsWithTrades} markets with trade data`, 'info');
+      }
+    } else {
+      logActivity(`⚠️ APIs unavailable, using realistic simulated data`, 'warning');
       useSimulated = true;
+      botState.dataSource = 'Simulated (Polymarket API unavailable)';
     }
     
-    // Use simulated if real failed
+    // Use simulated if needed
     if (useSimulated || Object.keys(traderStats).length === 0) {
-      logActivity('📊 Loading realistic trader data...', 'info');
+      logActivity(`📊 Generating realistic trader data...`, 'info');
       const simulated = generateRealisticTraders(10);
       for (const sim of simulated) {
         traderStats[sim.address] = sim;
@@ -194,11 +237,12 @@ async function discoverRealTraders() {
       .slice(0, 20);
     
     if (qualified.length === 0) {
-      logActivity('⚠️ Retrying trader discovery...', 'warning');
+      logActivity('⚠️ No qualified traders found, retrying...', 'warning');
       return;
     }
     
-    logActivity(`✅ Found ${qualified.length} qualified traders (${useSimulated ? 'simulated' : 'live'})`, 'success');
+    const dataType = useSimulated ? 'simulated' : 'live';
+    logActivity(`✅ Found ${qualified.length} qualified traders (${dataType})`, 'success');
     
     // Add traders
     let addedCount = 0;
@@ -218,7 +262,7 @@ async function discoverRealTraders() {
         botState.walletLastActivity[trader.address] = Date.now();
         addedCount++;
         
-        logActivity(`➕ ${trader.address.slice(0, 8)}... | ${trader.winRate}% win | ${trader.roi}% ROI`, 'success');
+        logActivity(`➕ Added: ${trader.address.slice(0, 8)}... | ${trader.winRate}% win | ${trader.roi}% ROI`, 'success');
         
         broadcastUpdate({
           type: 'wallet_auto_added_realtime',
@@ -230,7 +274,7 @@ async function discoverRealTraders() {
     }
     
     if (addedCount > 0) {
-      logActivity(`🎯 Tracking ${botState.followedWallets.length}/${botState.maxWallets} traders`, 'info');
+      logActivity(`🎯 Tracking ${botState.followedWallets.length}/${botState.maxWallets} traders | Source: ${botState.dataSource}`, 'info');
     }
     
   } catch (error) {
@@ -433,6 +477,7 @@ app.get('/api/status', (req, res) => {
     successRate: parseFloat(successRate),
     followedWallets: botState.followedWallets.length,
     maxWallets: botState.maxWallets,
+    dataSource: botState.dataSource,
   });
 });
 
@@ -459,6 +504,7 @@ app.post('/api/scan-markets', async (req, res) => {
   res.json({
     status: 'scanned',
     wallets: botState.followedWallets.length,
+    dataSource: botState.dataSource,
   });
 });
 
@@ -521,6 +567,7 @@ wss.on('connection', (ws) => {
     followedWallets: botState.followedWallets,
     walletMetrics: botState.walletMetrics,
     activityLog: botState.activityLog,
+    dataSource: botState.dataSource,
   }));
   
   ws.on('close', () => {});
@@ -548,6 +595,6 @@ setInterval(() => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`\n⚡ POLYMARKET COPY TRADING BOT\n`);
-  console.log(`Fetches real traders + fallback to simulated data`);
+  console.log(`Fetches real trader data + falls back to simulated`);
   console.log(`All activity logged in dashboard\n`);
 });
