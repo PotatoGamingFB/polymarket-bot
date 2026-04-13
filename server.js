@@ -28,7 +28,7 @@ const botState = {
   walletMetrics: {},
   discoveredWallets: {},
   autoDiscoveryEnabled: false,
-  minSuccessRate: 90,
+  minSuccessRate: 50,
 };
 
 // ===== POLYMARKET API CONFIG =====
