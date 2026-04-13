@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Polymarket Leaderboard Tracker Bot</title>
+  <title>Polymarket Copy Trading Bot</title>
   <style>
     * {
       margin: 0;
@@ -15,19 +15,19 @@
       --primary: #00d4ff;
       --secondary: #ff006e;
       --accent: #ffbe0b;
-      --dark-bg: #0a0e27;
-      --card-bg: #1a1f3a;
-      --text-light: #e0e0e0;
-      --text-muted: #8b8b9e;
       --success: #00d97e;
       --danger: #ff3860;
       --warning: #ffb800;
+      --dark: #0a0e27;
+      --card: #1a1f3a;
+      --text: #e0e0e0;
+      --muted: #8b8b9e;
     }
 
     body {
-      font-family: 'Sohne', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: linear-gradient(135deg, var(--dark-bg) 0%, #0f1330 100%);
-      color: var(--text-light);
+      font-family: 'Monaco', 'Courier New', monospace;
+      background: linear-gradient(135deg, var(--dark) 0%, #0f1330 100%);
+      color: var(--text);
       min-height: 100vh;
       padding: 15px;
     }
@@ -44,26 +44,16 @@
       margin-bottom: 15px;
       padding-bottom: 12px;
       border-bottom: 2px solid rgba(0, 212, 255, 0.2);
-      gap: 20px;
+      gap: 15px;
       flex-wrap: wrap;
     }
 
     .title {
+      font-size: 24px;
+      font-weight: 700;
       display: flex;
       align-items: center;
       gap: 10px;
-      font-size: 24px;
-      font-weight: 700;
-    }
-
-    .title-icon {
-      font-size: 28px;
-      animation: pulse 2s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.6; }
     }
 
     .controls {
@@ -79,14 +69,15 @@
       font-weight: 600;
       cursor: pointer;
       font-size: 13px;
-      transition: all 0.3s ease;
+      transition: all 0.3s;
+      font-family: inherit;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
     .btn-start {
       background: var(--success);
-      color: var(--dark-bg);
+      color: var(--dark);
     }
 
     .btn-start:hover:not(:disabled) {
@@ -101,16 +92,20 @@
 
     .btn-stop:hover:not(:disabled) {
       background: #ff5a7a;
-      transform: translateY(-2px);
+    }
+
+    .btn-scan {
+      background: var(--accent);
+      color: var(--dark);
+    }
+
+    .btn-scan:hover:not(:disabled) {
+      background: #ffd300;
     }
 
     .btn-reset {
-      background: var(--text-muted);
-      color: var(--dark-bg);
-    }
-
-    .btn-reset:hover {
-      background: var(--text-light);
+      background: var(--muted);
+      color: var(--dark);
     }
 
     button:disabled {
@@ -118,42 +113,25 @@
       cursor: not-allowed;
     }
 
-    .main-grid {
+    .metrics {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 15px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
       margin-bottom: 15px;
     }
 
-    .metrics-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-
     .metric-card {
-      background: var(--card-bg);
+      background: var(--card);
       border: 1px solid rgba(0, 212, 255, 0.1);
       border-radius: 10px;
       padding: 14px;
-      position: relative;
-    }
-
-    .metric-card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 3px;
-      background: linear-gradient(90deg, var(--primary), var(--secondary));
     }
 
     .metric-label {
       font-size: 10px;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 1px;
-      color: var(--text-muted);
       margin-bottom: 6px;
       font-weight: 600;
     }
@@ -162,258 +140,34 @@
       font-size: 20px;
       font-weight: 700;
       color: var(--primary);
-      font-family: 'JetBrains Mono', monospace;
     }
 
-    .metric-positive { color: var(--success); }
-    .metric-negative { color: var(--danger); }
+    .success { color: var(--success); }
+    .danger { color: var(--danger); }
 
-    .section {
-      background: var(--card-bg);
-      border: 1px solid rgba(0, 212, 255, 0.1);
-      border-radius: 10px;
-      padding: 16px;
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
       margin-bottom: 15px;
     }
 
-    .section-title {
-      font-size: 14px;
-      font-weight: 700;
-      margin-bottom: 12px;
-      color: var(--text-light);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .btn-discover {
-      background: var(--accent);
-      color: var(--dark-bg);
-      padding: 8px 14px;
-      font-size: 12px;
-    }
-
-    .btn-discover:hover:not(:disabled) {
-      background: #ffd300;
-    }
-
-    .btn-discover:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .toggle-switch {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-    }
-
-    .switch {
-      position: relative;
-      display: inline-block;
-      width: 40px;
-      height: 20px;
-    }
-
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-
-    .slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: var(--text-muted);
-      transition: 0.3s;
-      border-radius: 20px;
-    }
-
-    .slider:before {
-      position: absolute;
-      content: "";
-      height: 16px;
-      width: 16px;
-      left: 2px;
-      bottom: 2px;
-      background-color: white;
-      transition: 0.3s;
-      border-radius: 50%;
-    }
-
-    input:checked + .slider {
-      background-color: var(--success);
-    }
-
-    input:checked + .slider:before {
-      transform: translateX(20px);
-    }
-
-    .leaderboard-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 11px;
-      margin-bottom: 12px;
-    }
-
-    .leaderboard-table th {
-      background: rgba(0, 212, 255, 0.05);
-      padding: 8px;
-      text-align: left;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      border-bottom: 1px solid rgba(0, 212, 255, 0.1);
-    }
-
-    .leaderboard-table td {
-      padding: 8px;
-      border-bottom: 1px solid rgba(0, 212, 255, 0.05);
-      font-family: 'JetBrains Mono', monospace;
-    }
-
-    .leaderboard-table tr:hover {
-      background: rgba(0, 212, 255, 0.05);
-    }
-
-    .rank-badge {
-      background: linear-gradient(135deg, var(--accent), var(--secondary));
-      color: white;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-weight: 700;
-      font-size: 10px;
-    }
-
-    .win-rate {
-      color: var(--success);
-      font-weight: 600;
-    }
-
-    .wallet-address {
-      color: var(--primary);
-      font-size: 10px;
-    }
-
-    .discovered-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-height: 250px;
-      overflow-y: auto;
-    }
-
-    .discovered-item {
-      background: rgba(255, 190, 11, 0.05);
-      border: 1px solid rgba(255, 190, 11, 0.2);
-      border-radius: 6px;
-      padding: 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 11px;
-      gap: 8px;
-    }
-
-    .discovered-info {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .discovered-address {
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--accent);
-      font-size: 10px;
-    }
-
-    .discovered-stats {
-      font-size: 10px;
-      color: var(--text-muted);
-    }
-
-    .btn-add-discovered {
-      background: var(--success);
-      color: var(--dark-bg);
-      padding: 4px 10px;
-      font-size: 10px;
-    }
-
-    .wallet-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-height: 250px;
-      overflow-y: auto;
-    }
-
-    .wallet-item {
-      background: rgba(0, 212, 255, 0.05);
-      border: 1px solid rgba(0, 212, 255, 0.2);
-      border-radius: 6px;
-      padding: 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 11px;
-      gap: 8px;
-    }
-
-    .wallet-item.auto-added {
-      border-color: rgba(0, 217, 126, 0.3);
-      background: rgba(0, 217, 126, 0.05);
-    }
-
-    .wallet-info {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .wallet-address {
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--primary);
-      font-size: 10px;
-    }
-
-    .wallet-badge {
-      background: rgba(0, 217, 126, 0.2);
-      color: var(--success);
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 10px;
-      font-weight: 600;
-      display: inline-block;
-      width: fit-content;
-    }
-
-    .btn-remove {
-      background: var(--danger);
-      color: white;
-      padding: 4px 10px;
-      font-size: 11px;
-    }
-
-    .btn-remove:hover {
-      background: #ff5a7a;
-    }
-
-    .activity-feed {
-      background: var(--card-bg);
+    .section {
+      background: var(--card);
       border: 1px solid rgba(0, 212, 255, 0.1);
       border-radius: 10px;
       padding: 16px;
-      height: 350px;
       display: flex;
       flex-direction: column;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: var(--text);
+      text-transform: uppercase;
+      letter-spacing: 1px;
     }
 
     .activity-log {
@@ -421,9 +175,9 @@
       overflow-y: auto;
       display: flex;
       flex-direction: column-reverse;
-      gap: 6px;
+      gap: 4px;
       font-size: 11px;
-      font-family: 'JetBrains Mono', monospace;
+      max-height: 400px;
     }
 
     .activity-item {
@@ -431,11 +185,19 @@
       background: rgba(0, 212, 255, 0.05);
       border-left: 3px solid var(--primary);
       border-radius: 4px;
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+
+    .activity-item.success {
+      border-left-color: var(--success);
+      background: rgba(0, 217, 126, 0.05);
     }
 
     .activity-item.trade {
       border-left-color: var(--success);
-      background: rgba(0, 217, 126, 0.05);
+      background: rgba(0, 217, 126, 0.08);
     }
 
     .activity-item.error {
@@ -443,71 +205,82 @@
       background: rgba(255, 56, 96, 0.05);
     }
 
+    .activity-item.warning {
+      border-left-color: var(--warning);
+      background: rgba(255, 184, 0, 0.05);
+    }
+
+    .activity-item.start {
+      border-left-color: var(--accent);
+      background: rgba(255, 190, 11, 0.08);
+    }
+
     .activity-time {
-      color: var(--text-muted);
+      color: var(--muted);
       font-size: 10px;
-      margin-right: 6px;
+      white-space: nowrap;
+      flex-shrink: 0;
     }
 
-    .trades-section {
-      background: var(--card-bg);
-      border: 1px solid rgba(0, 212, 255, 0.1);
-      border-radius: 10px;
-      padding: 16px;
-      overflow-x: auto;
+    .activity-message {
+      flex: 1;
+      word-break: break-word;
     }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
+    .wallet-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 350px;
+      overflow-y: auto;
+    }
+
+    .wallet-item {
+      background: rgba(0, 212, 255, 0.05);
+      border: 1px solid rgba(0, 212, 255, 0.2);
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .wallet-addr {
+      font-family: 'Courier New', monospace;
+      color: var(--primary);
+    }
+
+    .empty {
+      text-align: center;
+      padding: 20px;
+      color: var(--muted);
       font-size: 11px;
     }
 
-    th {
+    .trades-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+    }
+
+    .trades-table th {
       background: rgba(0, 212, 255, 0.05);
       padding: 8px;
       text-align: left;
       font-weight: 600;
-      color: var(--text-muted);
+      color: var(--muted);
       text-transform: uppercase;
-      letter-spacing: 0.5px;
       border-bottom: 1px solid rgba(0, 212, 255, 0.1);
     }
 
-    td {
-      padding: 8px;
+    .trades-table td {
+      padding: 6px;
       border-bottom: 1px solid rgba(0, 212, 255, 0.05);
-      font-family: 'JetBrains Mono', monospace;
     }
 
-    tr:hover {
-      background: rgba(0, 212, 255, 0.05);
-    }
-
-    .trade-profit { color: var(--success); font-weight: 600; }
-    .trade-loss { color: var(--danger); font-weight: 600; }
-
-    .empty-state {
-      text-align: center;
-      padding: 20px;
-      color: var(--text-muted);
-      font-size: 11px;
-    }
-
-    .loading {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      border: 2px solid rgba(0, 212, 255, 0.2);
-      border-top: 2px solid var(--primary);
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
+    .trade-profit { color: var(--success); }
+    .trade-loss { color: var(--danger); }
 
     ::-webkit-scrollbar {
       width: 4px;
@@ -527,144 +300,75 @@
         grid-template-columns: 1fr;
       }
     }
-
-    @media (max-width: 768px) {
-      .header {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-      .metrics-grid {
-        grid-template-columns: 1fr 1fr;
-      }
-      .activity-feed {
-        height: 250px;
-      }
-    }
   </style>
 </head>
 <body>
   <div class="container">
     <!-- Header -->
     <div class="header">
-      <div class="title">
-        <span class="title-icon">🏆</span>
-        <div>Leaderboard Tracker Bot</div>
-      </div>
+      <div class="title">⚡ Polymarket Copy Bot</div>
       <div class="controls">
-        <button id="start-btn" class="btn-start">▶ Start</button>
-        <button id="stop-btn" class="btn-stop" disabled>⏹ Stop</button>
-        <button id="reset-btn" class="btn-reset">↻ Reset</button>
+        <button id="start-btn" class="btn-start">▶ START</button>
+        <button id="stop-btn" class="btn-stop" disabled>⏹ STOP</button>
+        <button id="scan-btn" class="btn-scan" disabled>🔍 SCAN</button>
+        <button id="reset-btn" class="btn-reset">↻ RESET</button>
       </div>
     </div>
 
-    <!-- Main Grid -->
-    <div class="main-grid">
-      <!-- Left: Metrics & Controls -->
-      <div>
-        <!-- Metrics -->
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <div class="metric-label">Balance</div>
-            <div class="metric-value" id="balance">$50.00</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-label">Profit</div>
-            <div class="metric-value metric-positive" id="profit">$0.00</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-label">Success Rate</div>
-            <div class="metric-value" id="success-rate">--%</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-label">Trades</div>
-            <div class="metric-value" id="trades-count">0</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-label">Wins</div>
-            <div class="metric-value metric-positive" id="wins">0</div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-label">Losses</div>
-            <div class="metric-value metric-negative" id="losses">0</div>
-          </div>
-        </div>
-
-        <!-- Leaderboard Discovery -->
-        <div class="section" style="margin-top: 15px;">
-          <div class="section-title">
-            <div>🏆 Today's Leaderboard</div>
-            <div class="toggle-switch">
-              <span>Auto-Add:</span>
-              <label class="switch">
-                <input type="checkbox" id="auto-discovery-toggle">
-                <span class="slider"></span>
-              </label>
-            </div>
-          </div>
-
-          <button class="btn-discover" id="discover-btn">Scan Leaderboard (50%+ Win)</button>
-
-          <div style="margin-top: 12px; font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">
-            Top performers from today's leaderboard:
-          </div>
-          <div class="discovered-list" id="discovered-list">
-            <div class="empty-state">Click "Scan Leaderboard" to find top traders</div>
-          </div>
-        </div>
-
-        <!-- Followed Wallets -->
-        <div class="section">
-          <div class="section-title">Followed Wallets</div>
-          <div class="wallet-list" id="wallet-list">
-            <div class="empty-state">No wallets added yet</div>
-          </div>
-        </div>
+    <!-- Metrics -->
+    <div class="metrics">
+      <div class="metric-card">
+        <div class="metric-label">Balance</div>
+        <div class="metric-value" id="balance">$50.00</div>
       </div>
+      <div class="metric-card">
+        <div class="metric-label">Profit</div>
+        <div class="metric-value success" id="profit">$0.00</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Trades</div>
+        <div class="metric-value" id="trades">0</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Success Rate</div>
+        <div class="metric-value" id="success-rate">--%</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Wallets Tracked</div>
+        <div class="metric-value" id="wallet-count">0/10</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Status</div>
+        <div class="metric-value" id="status-text">IDLE</div>
+      </div>
+    </div>
 
-      <!-- Right: Activity Feed -->
-      <div class="activity-feed">
-        <div class="section-title">Live Activity</div>
+    <!-- Main Content -->
+    <div class="main-grid">
+      <!-- Activity Log -->
+      <div class="section">
+        <div class="section-title">📋 Activity Log</div>
         <div class="activity-log" id="activity-log">
           <div class="activity-item">
             <span class="activity-time">--:--:--</span>
-            <span>Waiting to start...</span>
+            <span class="activity-message">Ready. Click START to begin scanning Polymarket for profitable traders.</span>
           </div>
+        </div>
+      </div>
+
+      <!-- Tracked Wallets -->
+      <div class="section">
+        <div class="section-title">👛 Tracked Wallets (Active)</div>
+        <div class="wallet-list" id="wallet-list">
+          <div class="empty">No wallets being tracked yet</div>
         </div>
       </div>
     </div>
 
-    <!-- Leaderboard Top 10 -->
-    <div class="section">
-      <div class="section-title">🏅 Top 10 Traders Today</div>
-      <table class="leaderboard-table" id="leaderboard-table">
-        <thead>
-          <tr>
-            <th>Rank</th>
-            <th>Wallet</th>
-            <th>Win Rate</th>
-            <th>Trades</th>
-            <th>ROI</th>
-            <th>Volume</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="leaderboard-body">
-          <tr>
-            <td colspan="7" class="empty-state">Scan leaderboard to see top traders</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
     <!-- Trades Table -->
-    <div class="trades-section">
-      <div class="section-title">Recent Trades</div>
-      <table id="trades-table">
+    <div class="section">
+      <div class="section-title">💹 Recent Trades (Last 20)</div>
+      <table class="trades-table" id="trades-table">
         <thead>
           <tr>
             <th>Time</th>
@@ -679,7 +383,7 @@
         </thead>
         <tbody id="trades-body">
           <tr>
-            <td colspan="8" class="empty-state">No trades yet. Add wallets and start the bot.</td>
+            <td colspan="8" class="empty">No trades yet. Start the bot to begin copying.</td>
           </tr>
         </tbody>
       </table>
@@ -688,250 +392,126 @@
 
   <script>
     let botRunning = false;
-    let tradeHistory = [];
+    let trades = [];
     let wallets = [];
-    let discoveredWallets = {};
-    let leaderboardData = [];
-    let autoDiscoveryEnabled = false;
+    let activityLog = [];
 
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');
+    const scanBtn = document.getElementById('scan-btn');
     const resetBtn = document.getElementById('reset-btn');
-    const discoverBtn = document.getElementById('discover-btn');
-    const autoDiscoveryToggle = document.getElementById('auto-discovery-toggle');
-    const walletList = document.getElementById('wallet-list');
-    const discoveredList = document.getElementById('discovered-list');
     const balanceEl = document.getElementById('balance');
     const profitEl = document.getElementById('profit');
+    const tradesEl = document.getElementById('trades');
     const successRateEl = document.getElementById('success-rate');
-    const tradesCountEl = document.getElementById('trades-count');
-    const winsEl = document.getElementById('wins');
-    const lossesEl = document.getElementById('losses');
-    const leaderboardBody = document.getElementById('leaderboard-body');
-    const tradesBody = document.getElementById('trades-body');
-    const activityLog = document.getElementById('activity-log');
+    const walletCountEl = document.getElementById('wallet-count');
+    const statusEl = document.getElementById('status-text');
+    const activityLogEl = document.getElementById('activity-log');
+    const walletListEl = document.getElementById('wallet-list');
+    const tradesBodyEl = document.getElementById('trades-body');
 
-    function formatCurrency(value) {
-      return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(value);
-    }
-
-    function formatTime(date) {
-      return new Date(date).toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    }
-
-    function addActivity(message, type = 'info') {
-      const time = new Date().toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      const item = document.createElement('div');
-      item.className = `activity-item ${type}`;
-      item.innerHTML = `<span class="activity-time">${time}</span><span>${message}</span>`;
-      
-      activityLog.insertBefore(item, activityLog.firstChild);
-      
-      while (activityLog.children.length > 50) {
-        activityLog.removeChild(activityLog.lastChild);
-      }
+    function formatCurrency(n) {
+      return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n);
     }
 
     function updateMetrics(data) {
       balanceEl.textContent = formatCurrency(data.balance);
       profitEl.textContent = formatCurrency(data.totalProfit);
+      tradesEl.textContent = data.totalTrades;
       successRateEl.textContent = data.successRate ? `${data.successRate}%` : '--%';
-      tradesCountEl.textContent = data.totalTrades;
-      winsEl.textContent = data.successfulTrades || 0;
-      lossesEl.textContent = data.failedTrades || 0;
+      walletCountEl.textContent = `${data.followedWallets}/${data.maxWallets}`;
+      statusEl.textContent = data.running ? '🟢 ACTIVE' : '🔴 IDLE';
     }
 
-    function updateLeaderboard(leaderboard) {
-      if (!leaderboard || leaderboard.length === 0) {
-        leaderboardBody.innerHTML = '<tr><td colspan="7" class="empty-state">No leaderboard data</td></tr>';
-        return;
+    function addActivity(msg, type = 'info') {
+      const time = new Date().toLocaleTimeString('en-CA', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+
+      const item = document.createElement('div');
+      item.className = `activity-item ${type}`;
+      item.innerHTML = `<span class="activity-time">${time}</span><span class="activity-message">${msg}</span>`;
+
+      activityLogEl.insertBefore(item, activityLogEl.firstChild);
+      while (activityLogEl.children.length > 50) {
+        activityLogEl.removeChild(activityLogEl.lastChild);
       }
-
-      leaderboardBody.innerHTML = leaderboard
-        .slice(0, 10)
-        .map((user) => `
-          <tr>
-            <td><span class="rank-badge">#${user.rank}</span></td>
-            <td><span class="wallet-address">${user.address.slice(0, 8)}...</span></td>
-            <td><span class="win-rate">${user.winRate}%</span></td>
-            <td>${user.trades}</td>
-            <td>${user.roi}%</td>
-            <td>${formatCurrency(user.volume || 0)}</td>
-            <td><button class="btn-add-discovered" onclick="addDiscovered('${user.address}')">+ Add</button></td>
-          </tr>
-        `)
-        .join('');
     }
 
-    function updateTradesTable(trades) {
-      if (trades.length === 0) {
-        tradesBody.innerHTML = '<tr><td colspan="8" class="empty-state">No trades yet</td></tr>';
-        return;
-      }
-
-      tradesBody.innerHTML = trades
-        .slice(0, 15)
-        .map((trade) => `
-          <tr>
-            <td>${formatTime(trade.timestamp)}</td>
-            <td>${trade.copiedFrom}</td>
-            <td>${trade.marketName.substring(0, 30)}</td>
-            <td>${trade.entryPrice.toFixed(4)}</td>
-            <td>${trade.exitPrice.toFixed(4)}</td>
-            <td class="${trade.profit >= 0 ? 'trade-profit' : 'trade-loss'}">
-              ${formatCurrency(trade.profit)}
-            </td>
-            <td class="${trade.profitPercent >= 0 ? 'trade-profit' : 'trade-loss'}">
-              ${trade.profitPercent.toFixed(1)}%
-            </td>
-            <td>${trade.status === 'stopped' ? '🛑 SL' : '✓'}</td>
-          </tr>
-        `)
-        .join('');
-    }
-
-    function updateWalletList(walletList, metrics) {
+    function updateWallets(walletList) {
       if (walletList.length === 0) {
-        document.getElementById('wallet-list').innerHTML = '<div class="empty-state">No wallets added yet</div>';
+        walletListEl.innerHTML = '<div class="empty">No wallets tracked</div>';
         return;
       }
 
-      document.getElementById('wallet-list').innerHTML = walletList
-        .map((wallet) => {
-          const metric = metrics[wallet] || { trades: 0, wins: 0, losses: 0 };
-          const winRate = metric.trades > 0 ? ((metric.wins / metric.trades) * 100).toFixed(0) : '-';
-          const isAuto = metric.autoAdded ? ' auto-added' : '';
-          const rank = metric.leaderboardRank ? `#${metric.leaderboardRank}` : '-';
-          return `
-            <div class="wallet-item${isAuto}">
-              <div class="wallet-info">
-                <div class="wallet-address">${wallet.slice(0, 6)}...</div>
-                <div style="font-size: 9px; color: var(--text-muted);">
-                  Rank: ${rank} | ${metric.trades} trades | ${winRate}% wins
-                </div>
-              </div>
-              ${metric.autoAdded ? '<div class="wallet-badge">AUTO</div>' : ''}
-              <button class="btn-remove" onclick="removeWallet('${wallet}')">✕</button>
-            </div>
-          `;
-        })
+      walletListEl.innerHTML = walletList
+        .map(w => `<div class="wallet-item"><span class="wallet-addr">${w.slice(0, 10)}...</span></div>`)
         .join('');
     }
 
-    function updateDiscoveredList(discovered) {
-      if (Object.keys(discovered).length === 0) {
-        document.getElementById('discovered-list').innerHTML = '<div class="empty-state">No traders discovered yet</div>';
+    function updateTrades(tradeList) {
+      if (tradeList.length === 0) {
+        tradesBodyEl.innerHTML = '<tr><td colspan="8" class="empty">No trades yet</td></tr>';
         return;
       }
 
-      document.getElementById('discovered-list').innerHTML = Object.entries(discovered)
-        .slice(0, 10)
-        .map(([wallet, data]) => `
-          <div class="discovered-item">
-            <div class="discovered-info">
-              <div class="discovered-address">${wallet.slice(0, 10)}...</div>
-              <div class="discovered-stats">
-                Rank #${data.rank} | ${data.successRate}% win | ${data.trades} trades | ${data.roi}% ROI
-              </div>
-            </div>
-            <button class="btn-add-discovered" onclick="addDiscovered('${wallet}')">+ Add</button>
-          </div>
+      tradesBodyEl.innerHTML = tradeList.slice(0, 20)
+        .map(t => `
+          <tr>
+            <td>${new Date(t.timestamp).toLocaleTimeString()}</td>
+            <td>${t.copiedFrom}</td>
+            <td>${t.marketName.substring(0, 30)}</td>
+            <td>${t.entryPrice.toFixed(4)}</td>
+            <td>${t.exitPrice.toFixed(4)}</td>
+            <td class="${t.profit >= 0 ? 'trade-profit' : 'trade-loss'}">$${t.profit.toFixed(2)}</td>
+            <td class="${t.profitPercent >= 0 ? 'trade-profit' : 'trade-loss'}">${t.profitPercent.toFixed(1)}%</td>
+            <td>${t.status === 'stopped' ? '🛑' : '✓'}</td>
+          </tr>
         `)
         .join('');
     }
-
-    async function discoverWallets() {
-      discoverBtn.disabled = true;
-      discoverBtn.innerHTML = '<span class="loading"></span> Scanning...';
-      addActivity('📊 Scanning Polymarket leaderboard...', 'info');
-
-      try {
-        const response = await fetch('/api/discover-wallets', { method: 'POST' });
-        const data = await response.json();
-
-        if (response.ok) {
-          discoveredWallets = data.wallets;
-          leaderboardData = data.leaderboard || [];
-          updateDiscoveredList(discoveredWallets);
-          updateLeaderboard(leaderboardData);
-          addActivity(`✅ Found ${data.count} traders with 50%+ win rate`, 'info');
-        } else {
-          addActivity('⚠️ Leaderboard scan failed', 'error');
-        }
-      } catch (error) {
-        addActivity('❌ Scan error', 'error');
-      }
-
-      discoverBtn.disabled = false;
-      discoverBtn.innerHTML = 'Scan Leaderboard (50%+ Win)';
-    }
-
-    async function addDiscovered(wallet) {
-      const response = await fetch('/api/add-wallet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ walletAddress: wallet }),
-      });
-
-      if (response.ok) {
-        addActivity(`✅ Added: ${wallet.slice(0, 6)}...`, 'info');
-      } else {
-        const error = await response.json();
-        addActivity(`❌ ${error.error}`, 'error');
-      }
-    }
-
-    async function removeWallet(address) {
-      const response = await fetch('/api/remove-wallet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ walletAddress: address }),
-      });
-
-      if (response.ok) {
-        addActivity(`❌ Removed: ${address.slice(0, 6)}...`, 'info');
-      }
-    }
-
-    discoverBtn.addEventListener('click', discoverWallets);
-
-    autoDiscoveryToggle.addEventListener('change', async () => {
-      const response = await fetch('/api/toggle-auto-discovery', { method: 'POST' });
-      if (response.ok) {
-        autoDiscoveryEnabled = !autoDiscoveryEnabled;
-        addActivity(`${autoDiscoveryEnabled ? '✅' : '❌'} Auto-add ${autoDiscoveryEnabled ? 'enabled' : 'disabled'}`, 'info');
-      }
-    });
 
     startBtn.addEventListener('click', async () => {
-      const response = await fetch('/api/start', { method: 'POST' });
-      if (response.ok) {
+      const res = await fetch('/api/start', { method: 'POST' });
+      if (res.ok) {
         botRunning = true;
         startBtn.disabled = true;
         stopBtn.disabled = false;
-        addActivity('🚀 Bot started - copying top trader positions', 'info');
-      } else {
-        const error = await response.json();
-        addActivity(`❌ ${error.error}`, 'error');
+        scanBtn.disabled = false;
+        addActivity('🚀 Bot started - discovering traders from Polymarket activity...', 'start');
       }
     });
 
     stopBtn.addEventListener('click', async () => {
-      const response = await fetch('/api/stop', { method: 'POST' });
-      if (response.ok) {
-        botRunning = false;
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-        addActivity('⏹ Bot stopped', 'info');
+      await fetch('/api/stop', { method: 'POST' });
+      botRunning = false;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      scanBtn.disabled = true;
+      addActivity('⏹ Bot stopped', 'warning');
+    });
+
+    scanBtn.addEventListener('click', async () => {
+      scanBtn.disabled = true;
+      addActivity('🔍 Manual scan triggered...', 'scan');
+      const res = await fetch('/api/scan-markets', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        addActivity(`✅ Scan complete - ${data.wallets} wallets tracked`, 'success');
       }
+      scanBtn.disabled = false;
     });
 
     resetBtn.addEventListener('click', async () => {
-      if (confirm('Reset bot to $50 and clear all trades?')) {
+      if (confirm('Reset bot?')) {
         await fetch('/api/reset', { method: 'POST' });
-        tradeHistory = [];
-        updateTradesTable([]);
-        addActivity('↻ Bot reset', 'info');
+        trades = [];
+        wallets = [];
+        updateTrades([]);
+        updateWallets([]);
+        addActivity('↻ Bot reset', 'warning');
       }
     });
 
@@ -940,37 +520,37 @@
       const ws = new WebSocket(`${protocol}//${window.location.host}`);
 
       ws.onopen = () => {
-        addActivity('✅ Connected to bot', 'info');
+        console.log('Connected');
       };
 
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+      ws.onmessage = (e) => {
+        const data = JSON.parse(e.data);
 
         if (data.type === 'initial_state') {
           updateMetrics(data);
-          updateTradesTable(data.trades);
-          updateWalletList(data.followedWallets, data.walletMetrics);
-          updateDiscoveredList(data.discoveredWallets);
-          updateLeaderboard(data.leaderboardData);
+          updateTrades(data.trades);
+          updateWallets(data.followedWallets);
           wallets = data.followedWallets;
-          discoveredWallets = data.discoveredWallets;
-          leaderboardData = data.leaderboardData;
-          autoDiscoveryEnabled = data.autoDiscoveryEnabled;
-          autoDiscoveryToggle.checked = autoDiscoveryEnabled;
-          tradeHistory = data.trades;
-          if (data.running) {
-            botRunning = true;
-            startBtn.disabled = true;
-            stopBtn.disabled = false;
+          trades = data.trades;
+          if (data.activityLog) {
+            data.activityLog.forEach(log => {
+              const item = document.createElement('div');
+              item.className = `activity-item ${log.type}`;
+              item.innerHTML = `<span class="activity-time">${log.timestamp}</span><span class="activity-message">${log.message}</span>`;
+              activityLogEl.appendChild(item);
+            });
           }
+        } else if (data.type === 'activity_log') {
+          addActivity(data.entry.message, data.entry.type);
         } else if (data.type === 'new_trade') {
-          tradeHistory.unshift(data.trade);
+          trades.unshift(data.trade);
           updateMetrics(data);
-          updateTradesTable(tradeHistory);
-          addActivity(`💰 Trade: ${formatCurrency(data.trade.profit)} | ${data.trade.profitPercent.toFixed(1)}%`, 'trade');
-        } else if (data.type === 'wallet_auto_added') {
+          updateTrades(trades);
+          addActivity(`⚡ Trade copied: +${data.trade.profitPercent > 0 ? '+' : ''}$${data.trade.profit.toFixed(2)}`, 'trade');
+        } else if (data.type === 'wallet_auto_added_realtime') {
           wallets.push(data.wallet);
-          addActivity(`✅ Auto-added: #${data.rank} (${data.winRate}%)`, 'info');
+          updateWallets(wallets);
+          addActivity(`➕ Added: ${data.wallet.slice(0, 8)}... | ${data.winRate}% win | ${data.roi}% ROI`, 'success');
         } else if (data.type === 'bot_started') {
           botRunning = true;
           startBtn.disabled = true;
@@ -979,21 +559,19 @@
           botRunning = false;
           startBtn.disabled = false;
           stopBtn.disabled = true;
-        } else if (data.type === 'auto_discovery_toggled') {
-          autoDiscoveryEnabled = data.enabled;
         }
       };
 
+      ws.onerror = () => {
+        addActivity('❌ Connection error', 'error');
+      };
+
       ws.onclose = () => {
-        addActivity('❌ Disconnected', 'error');
-        setTimeout(connectWebSocket, 3000);
+        setTimeout(connectWebSocket, 2000);
       };
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      connectWebSocket();
-      addActivity('✨ Dashboard loaded', 'info');
-    });
+    connectWebSocket();
   </script>
 </body>
 </html>
