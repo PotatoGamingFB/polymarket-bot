@@ -27,6 +27,13 @@ const botState = {
   activityLog: [],
   maxWallets: 10,
   dataSource: 'unknown',
+  
+  // Risk Management - Max Loss Only
+  dailyStartBalance: 50,
+  dailyMaxLoss: 20,
+  tradingEnabled: true,
+  stopReason: null,
+  dayStartTime: null,
 };
 
 // CONFIG
@@ -67,6 +74,22 @@ function logActivity(message, type = 'info') {
   });
 }
 
+// CHECK RISK LIMITS - Max Loss Only
+function checkRiskLimits() {
+  if (!botState.running) return;
+  
+  const dailyP = botState.balance - botState.dailyStartBalance;
+  const dailyLoss = Math.abs(Math.min(dailyP, 0));
+
+  // Check max loss limit
+  if (dailyLoss >= botState.dailyMaxLoss && botState.tradingEnabled) {
+    botState.tradingEnabled = false;
+    botState.stopReason = `MAX LOSS REACHED: -$${dailyLoss.toFixed(2)}`;
+    logActivity(`🛑 TRADING PAUSED: Max loss limit reached (-$${dailyLoss.toFixed(2)}) | Restart bot to reset`, 'danger');
+    broadcastUpdate({ type: 'risk_limit_triggered', reason: 'max_loss' });
+  }
+}
+
 // GENERATE REALISTIC TRADERS
 function generateRealisticTraders(count = 8) {
   const traders = [];
@@ -96,7 +119,6 @@ function generateRealisticTraders(count = 8) {
 // TRY MULTIPLE API ENDPOINTS
 async function fetchRealTraders() {
   const endpoints = [
-    // Try different API endpoints
     {
       url: 'https://clob.polymarket.com/markets?active=true&limit=100',
       name: 'CLOB Markets API'
@@ -140,10 +162,9 @@ async function discoverRealTraders() {
     logActivity('🔍 Scanning for profitable traders...', 'scan');
     
     const traderStats = {};
-    
-    // Try to get real data
-    const apiResult = await fetchRealTraders();
     let useSimulated = false;
+
+    const apiResult = await fetchRealTraders();
 
     if (apiResult.success && apiResult.markets.length > 0) {
       botState.dataSource = apiResult.source;
@@ -311,6 +332,9 @@ function checkInactiveWallets() {
 async function detectAndCopyTrades() {
   if (botState.followedWallets.length === 0 || !botState.running) return;
   
+  // Don't copy if trading disabled by risk limits
+  if (!botState.tradingEnabled) return;
+  
   try {
     const marketsResponse = await axios.get(
       'https://clob.polymarket.com/markets?active=true&limit=50',
@@ -359,6 +383,9 @@ async function detectAndCopyTrades() {
               `⚡ ${wallet.slice(0, 6)}... | ${icon} $${copiedTrade.profit.toFixed(2)} (${copiedTrade.profitPercent.toFixed(1)}%)`,
               'trade'
             );
+            
+            // Check risk limits after each trade
+            checkRiskLimits();
           }
         }
       } catch (e) {
@@ -466,6 +493,10 @@ app.get('/api/status', (req, res) => {
     ? ((botState.successfulTrades / botState.totalTrades) * 100).toFixed(1)
     : 0;
   
+  const dailyP = botState.balance - botState.dailyStartBalance;
+  const dailyLoss = Math.abs(Math.min(dailyP, 0));
+  const dailyProfit = Math.max(dailyP, 0);
+  
   res.json({
     running: botState.running,
     balance: botState.balance,
@@ -478,6 +509,13 @@ app.get('/api/status', (req, res) => {
     followedWallets: botState.followedWallets.length,
     maxWallets: botState.maxWallets,
     dataSource: botState.dataSource,
+    
+    // Risk Management
+    tradingEnabled: botState.tradingEnabled,
+    stopReason: botState.stopReason,
+    dailyProfit: parseFloat(dailyProfit.toFixed(2)),
+    dailyLoss: parseFloat(dailyLoss.toFixed(2)),
+    dailyMaxLoss: botState.dailyMaxLoss,
   });
 });
 
@@ -514,11 +552,15 @@ app.post('/api/start', (req, res) => {
   }
   
   botState.running = true;
+  botState.tradingEnabled = true;
+  botState.stopReason = null;
   botState.followedWallets = [];
   botState.walletMetrics = {};
   botState.walletLastActivity = {};
+  botState.dailyStartBalance = botState.balance;
+  botState.dayStartTime = new Date();
   
-  logActivity('🚀 BOT STARTED - Discovering traders...', 'start');
+  logActivity('🚀 BOT STARTED - Risk Limit: Max Loss $20 | Keep trading on positive days', 'start');
   
   res.json({ status: 'started' });
   broadcastUpdate({ type: 'bot_started' });
@@ -526,6 +568,7 @@ app.post('/api/start', (req, res) => {
 
 app.post('/api/stop', (req, res) => {
   botState.running = false;
+  botState.tradingEnabled = false;
   botState.followedWallets = [];
   
   logActivity('⏹ BOT STOPPED', 'stop');
@@ -543,8 +586,11 @@ app.post('/api/reset', (req, res) => {
   botState.trades = [];
   botState.running = false;
   botState.activityLog = [];
+  botState.tradingEnabled = true;
+  botState.stopReason = null;
+  botState.dailyStartBalance = 50;
   
-  logActivity('↻ RESET', 'reset');
+  logActivity('↻ RESET - All stats cleared, ready for new trading session', 'reset');
   
   res.json({ status: 'reset' });
   broadcastUpdate({ type: 'bot_reset' });
@@ -552,6 +598,10 @@ app.post('/api/reset', (req, res) => {
 
 // WS
 wss.on('connection', (ws) => {
+  const dailyP = botState.balance - botState.dailyStartBalance;
+  const dailyLoss = Math.abs(Math.min(dailyP, 0));
+  const dailyProfit = Math.max(dailyP, 0);
+  
   ws.send(JSON.stringify({
     type: 'initial_state',
     balance: botState.balance,
@@ -568,6 +618,10 @@ wss.on('connection', (ws) => {
     walletMetrics: botState.walletMetrics,
     activityLog: botState.activityLog,
     dataSource: botState.dataSource,
+    tradingEnabled: botState.tradingEnabled,
+    stopReason: botState.stopReason,
+    dailyProfit: parseFloat(dailyProfit.toFixed(2)),
+    dailyLoss: parseFloat(dailyLoss.toFixed(2)),
   }));
   
   ws.on('close', () => {});
@@ -591,10 +645,18 @@ setInterval(() => {
   }
 }, 15000);
 
+// Check risk limits regularly
+setInterval(() => {
+  if (botState.running) {
+    checkRiskLimits();
+  }
+}, 5000);
+
 // START
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`\n⚡ POLYMARKET COPY TRADING BOT\n`);
-  console.log(`Fetches real trader data + falls back to simulated`);
-  console.log(`All activity logged in dashboard\n`);
+  console.log(`Risk Management:`);
+  console.log(`  • Max Loss per day: $20`);
+  console.log(`  • No profit target - keeps trading on positive days\n`);
 });
