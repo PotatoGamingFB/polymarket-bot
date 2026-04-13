@@ -10,10 +10,11 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
 app.use(express.static('public'));
+app.use(express.static('.'));
 
 // ===== BOT STATE =====
 const botState = {
-  balance: 50, // $50 CAD
+  balance: 50,
   initialBalance: 50,
   positions: {},
   trades: [],
@@ -27,17 +28,13 @@ const botState = {
 // ===== POLYMARKET API CONFIG =====
 const POLYMARKET_API = 'https://clob.polymarket.com';
 const POLYMARKET_ORDERBOOK = 'https://orderbook-api.polymarket.com';
-const CHECK_INTERVAL = 1000; // Check every second
+const POLYMARKET_API_KEY = '019d843d-8a2a-7b9f-8f66-bf8156cd64c4';
+const WALLET_ADDRESS = '0x7410e00786d297339f5e8a76297c9d0baa2b6c1a';
+const CHECK_INTERVAL = 1000;
 
-// ===== UTILITY FUNCTIONS =====
-
-/**
- * Detect arbitrage opportunities by monitoring order book imbalances
- * Returns array of opportunities with profit potential
- */
+// ===== DETECT ARBITRAGE =====
 async function detectArbitrageOpportunities() {
   try {
-    // Fetch active markets
     const marketsResponse = await axios.get(
       `${POLYMARKET_API}/markets?active=true&limit=50`,
       { timeout: 5000 }
@@ -49,7 +46,6 @@ async function detectArbitrageOpportunities() {
 
     for (const market of marketsResponse.data.markets.slice(0, 10)) {
       try {
-        // Get order book for each market
         const orderBookResponse = await axios.get(
           `${POLYMARKET_ORDERBOOK}/book/${market.id}`,
           { timeout: 5000 }
@@ -59,12 +55,10 @@ async function detectArbitrageOpportunities() {
 
         if (!bids?.length || !asks?.length) continue;
 
-        // Calculate imbalance ratio
         const bidVolume = bids.reduce((sum, b) => sum + (b.size || 0), 0);
         const askVolume = asks.reduce((sum, a) => sum + (a.size || 0), 0);
         const imbalanceRatio = bidVolume / askVolume;
 
-        // Detect opportunity: strong buy or sell pressure (>1.5x imbalance)
         if (imbalanceRatio > 1.5 || imbalanceRatio < 0.67) {
           const spreadPercent = ((asks[0].price - bids[0].price) / bids[0].price) * 100;
           
@@ -79,12 +73,11 @@ async function detectArbitrageOpportunities() {
               bidVolume,
               askVolume,
               timestamp: new Date(),
-              profitPotential: spreadPercent * 0.8, // Conservative estimate
+              profitPotential: spreadPercent * 0.8,
             });
           }
         }
       } catch (e) {
-        // Skip markets with API errors
         continue;
       }
     }
@@ -96,13 +89,10 @@ async function detectArbitrageOpportunities() {
   }
 }
 
-/**
- * Execute simulated arbitrage trade
- */
+// ===== EXECUTE TRADE =====
 function executeArbitrageTrade(opportunity) {
-  const tradeSize = Math.min(botState.balance * 0.2, 10); // Use max 20% of balance, max $10 per trade
+  const tradeSize = Math.min(botState.balance * 0.2, 10);
   
-  // Simulate buying at bid and selling at ask
   const buyPrice = opportunity.bidPrice;
   const sellPrice = opportunity.askPrice;
   
@@ -128,21 +118,17 @@ function executeArbitrageTrade(opportunity) {
     spreadExploited: opportunity.spreadPercent,
   };
 
-  // Update balance
   botState.balance += profit;
   botState.totalProfit += profit;
   botState.totalTrades++;
 
-  // Log trade
   botState.trades.unshift(trade);
   if (botState.trades.length > 100) botState.trades.pop();
 
   return trade;
 }
 
-/**
- * Monitor market and execute trades
- */
+// ===== MONITOR AND TRADE =====
 async function monitorAndTrade() {
   if (!botState.running) return;
 
@@ -150,11 +136,9 @@ async function monitorAndTrade() {
     const opportunities = await detectArbitrageOpportunities();
 
     for (const opportunity of opportunities) {
-      // Only execute if we have enough balance and spread is profitable
       if (botState.balance > 5 && opportunity.spreadPercent > 1.2) {
         const trade = executeArbitrageTrade(opportunity);
         
-        // Broadcast trade to all connected WebSocket clients
         broadcastUpdate({
           type: 'new_trade',
           trade,
@@ -164,7 +148,6 @@ async function monitorAndTrade() {
       }
     }
 
-    // Broadcast market snapshot
     broadcastUpdate({
       type: 'market_update',
       opportunities: opportunities.slice(0, 5),
@@ -177,9 +160,7 @@ async function monitorAndTrade() {
   }
 }
 
-/**
- * Broadcast updates to all connected WebSocket clients
- */
+// ===== BROADCAST =====
 function broadcastUpdate(data) {
   const message = JSON.stringify(data);
   wss.clients.forEach((client) => {
@@ -189,8 +170,7 @@ function broadcastUpdate(data) {
   });
 }
 
-// ===== REST API ENDPOINTS =====
-
+// ===== API ENDPOINTS =====
 app.get('/api/status', (req, res) => {
   res.json({
     running: botState.running,
@@ -199,6 +179,15 @@ app.get('/api/status', (req, res) => {
     totalProfit: botState.totalProfit,
     totalTrades: botState.totalTrades,
     roi: ((botState.totalProfit / botState.initialBalance) * 100).toFixed(2),
+  });
+});
+
+app.get('/api/credentials', (req, res) => {
+  res.json({
+    apiKeyConfigured: !!POLYMARKET_API_KEY,
+    walletAddressConfigured: !!WALLET_ADDRESS,
+    walletAddress: WALLET_ADDRESS,
+    apiKeyLastFour: POLYMARKET_API_KEY.slice(-4),
   });
 });
 
@@ -231,12 +220,10 @@ app.post('/api/reset', (req, res) => {
   broadcastUpdate({ type: 'bot_reset' });
 });
 
-// ===== WEBSOCKET HANDLING =====
-
+// ===== WEBSOCKET =====
 wss.on('connection', (ws) => {
-  console.log('New WebSocket connection');
+  console.log('WebSocket client connected');
 
-  // Send initial state
   ws.send(JSON.stringify({
     type: 'initial_state',
     balance: botState.balance,
@@ -247,7 +234,7 @@ wss.on('connection', (ws) => {
   }));
 
   ws.on('close', () => {
-    console.log('WebSocket connection closed');
+    console.log('WebSocket client disconnected');
   });
 
   ws.on('error', (error) => {
@@ -256,16 +243,16 @@ wss.on('connection', (ws) => {
 });
 
 // ===== BOT LOOP =====
-
 setInterval(() => {
   monitorAndTrade();
 }, CHECK_INTERVAL);
 
 // ===== START SERVER =====
-
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🤖 Polymarket Arbitrage Bot running on http://localhost:${PORT}`);
+  console.log(`🤖 Polymarket Arbitrage Bot running on port ${PORT}`);
   console.log(`📊 Starting balance: $${botState.initialBalance} CAD`);
   console.log(`⏱️  Checking markets every ${CHECK_INTERVAL}ms`);
+  console.log(`✅ API Key configured: ${!!POLYMARKET_API_KEY}`);
+  console.log(`✅ Wallet configured: ${!!WALLET_ADDRESS}`);
 });
