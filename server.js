@@ -116,39 +116,28 @@ function generateRealisticTraders(count = 8) {
   return traders;
 }
 
-// TRY MULTIPLE API ENDPOINTS
+// FETCH REAL TRADERS - CLOB API ONLY
 async function fetchRealTraders() {
-  const endpoints = [
-    {
-      url: 'https://clob.polymarket.com/markets?active=true&limit=100',
-      name: 'CLOB Markets API'
-    },
-    {
-      url: 'https://polymarket.com/api/markets?active=true&limit=100',
-      name: 'Polymarket Markets API'
-    },
-  ];
-
-  for (const endpoint of endpoints) {
-    try {
-      logActivity(`🔗 Trying ${endpoint.name}...`, 'info');
-      
-      const response = await axios.get(endpoint.url, {
-        timeout: 4000,
+  try {
+    logActivity(`🔗 Connecting to CLOB Markets API...`, 'info');
+    
+    const response = await axios.get(
+      'https://clob.polymarket.com/markets?active=true&limit=100',
+      {
+        timeout: 5000,
         headers: {
           'User-Agent': 'Mozilla/5.0',
           'Accept': 'application/json',
         }
-      });
-
-      if (response.data?.markets && Array.isArray(response.data.markets) && response.data.markets.length > 0) {
-        logActivity(`✅ Connected to ${endpoint.name}`, 'success');
-        return { success: true, markets: response.data.markets, source: endpoint.name };
       }
-    } catch (error) {
-      logActivity(`❌ ${endpoint.name} failed: ${error.message}`, 'warning');
-      continue;
+    );
+
+    if (response.data?.markets && Array.isArray(response.data.markets) && response.data.markets.length > 0) {
+      logActivity(`✅ Connected to CLOB Markets API`, 'success');
+      return { success: true, markets: response.data.markets, source: 'CLOB Markets API' };
     }
+  } catch (error) {
+    logActivity(`❌ CLOB API unavailable: ${error.message}`, 'warning');
   }
 
   return { success: false, markets: [], source: 'none' };
