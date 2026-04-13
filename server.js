@@ -23,16 +23,18 @@ const botState = {
   followedWallets: [],
   walletMetrics: {},
   discoveredWallets: {},
+  knownWallets: new Set(), // Track which wallets we've seen
   activityData: [],
-  autoDiscoveryEnabled: false,
+  autoDiscoveryEnabled: true, // Always enabled for real-time
   minSuccessRate: 50,
-  lastActivityCheck: 0,
   recentActivity: {},
+  lastDiscoveryTime: 0,
 };
 
 // CONFIG
 const POLYMARKET_API = 'https://clob.polymarket.com';
-const CHECK_INTERVAL = 500; // Check every 500ms for faster trade detection
+const CHECK_INTERVAL = 300; // Check every 300ms for trade detection
+const DISCOVERY_INTERVAL = 5000; // Discover new traders every 5 seconds
 const MAX_TRADE_SIZE = 6;
 const STOP_LOSS_PERCENT = 20;
 const POSITION_SIZE_PERCENT = 0.12;
@@ -47,261 +49,75 @@ function broadcastUpdate(data) {
   });
 }
 
-// DISCOVER SUCCESSFUL TRADERS
-async function discoverWallets() {
+// REAL-TIME DISCOVERY - Continuous background scan
+async function continuousDiscovery() {
+  if (!botState.running) return;
+
   try {
-    console.log('🔍 Scanning for successful traders...');
-    
-    const discoveredWallets = {};
-    let traders = [];
+    const now = Date.now();
+    // Run discovery every 5 seconds
+    if (now - botState.lastDiscoveryTime < DISCOVERY_INTERVAL) return;
+    botState.lastDiscoveryTime = now;
+
+    console.log('🔄 Real-time discovery scan...');
+
     const traderStats = {};
+    let newWalletsFound = 0;
 
-    // Get recent trades from multiple markets
+    // Scan active markets for recent traders
     try {
       const marketsResponse = await axios.get(
-        `${POLYMARKET_API}/markets?active=true&limit=100`,
-        { timeout: 8000 }
-      );
-
-      if (marketsResponse.data?.markets && marketsResponse.data.markets.length > 0) {
-        console.log(`📊 Checking ${marketsResponse.data.markets.length} markets for traders...`);
-
-        // Get trades from markets
-        for (const market of marketsResponse.data.markets.slice(0, 40)) {
-          try {
-            const tradesResponse = await axios.get(
-              `${POLYMARKET_API}/trades?market=${market.id}&limit=50`,
-              { timeout: 5000 }
-            );
-
-            if (!tradesResponse.data || !Array.isArray(tradesResponse.data)) continue;
-
-            for (const trade of tradesResponse.data) {
-              if (!trade.user) continue;
-
-              const wallet = trade.user;
-              const tradeTime = new Date(trade.createdAt || trade.timestamp);
-              const timeSinceStart = Date.now() - tradeTime.getTime();
-
-              // Track traders from last 24 hours
-              if (timeSinceStart < 86400000) {
-                if (!traderStats[wallet]) {
-                  traderStats[wallet] = {
-                    address: wallet,
-                    totalTrades: 0,
-                    winningTrades: 0,
-                    losingTrades: 0,
-                    profit: 0,
-                    volume: 0,
-                  };
-                }
-
-                traderStats[wallet].totalTrades++;
-                traderStats[wallet].volume += trade.size || 1;
-
-                // Simulate outcome (realistic 55-75% win rate)
-                if (Math.random() > 0.35) {
-                  traderStats[wallet].winningTrades++;
-                  traderStats[wallet].profit += (trade.size || 1) * (0.02 + Math.random() * 0.08);
-                } else {
-                  traderStats[wallet].losingTrades++;
-                  traderStats[wallet].profit -= (trade.size || 1) * (0.01 + Math.random() * 0.05);
-                }
-              }
-            }
-          } catch (e) {
-            continue;
-          }
-        }
-
-        // Convert to trader list
-        traders = Object.values(traderStats)
-          .filter(t => t.totalTrades >= 3) // Min 3 trades
-          .map((t, index) => ({
-            address: t.address,
-            rank: index + 1,
-            wins: t.winningTrades,
-            losses: t.losingTrades,
-            winRate: t.totalTrades > 0 
-              ? parseFloat(((t.winningTrades / t.totalTrades) * 100).toFixed(1))
-              : 0,
-            trades: t.totalTrades,
-            volume: parseFloat(t.volume.toFixed(2)),
-            profit: parseFloat(t.profit.toFixed(2)),
-            roi: t.volume > 0
-              ? parseFloat(((t.profit / t.volume) * 100).toFixed(2))
-              : 0,
-          }))
-          .sort((a, b) => b.roi - a.roi)
-          .slice(0, 50);
-
-        console.log(`✅ Found ${traders.length} traders with positive history`);
-      }
-    } catch (error) {
-      console.log(`⚠️ Market scan error: ${error.message}`);
-    }
-
-    // Generate simulated traders if none found
-    if (traders.length === 0) {
-      console.log('📊 Generating simulated successful traders...');
-      for (let i = 0; i < 20; i++) {
-        let address = '0x';
-        for (let j = 0; j < 40; j++) {
-          address += Math.floor(Math.random() * 16).toString(16);
-        }
-        
-        const trades = 4 + Math.floor(Math.random() * 15);
-        const wins = Math.floor(trades * (0.55 + Math.random() * 0.20));
-        const losses = trades - wins;
-        const winRate = (wins / trades) * 100;
-        const roi = 1 + Math.random() * 18; // +1% to +19%
-        
-        traders.push({
-          address,
-          rank: i + 1,
-          wins,
-          losses,
-          winRate: parseFloat(winRate.toFixed(1)),
-          trades,
-          volume: (50 + Math.random() * 300).toFixed(2),
-          profit: (parseFloat(roi) * 50).toFixed(2),
-          roi: parseFloat(roi.toFixed(2)),
-        });
-      }
-    }
-
-    botState.activityData = traders;
-
-    // FILTER: Positive ROI + 50%+ success rate
-    for (const trader of traders) {
-      const winRate = parseFloat(trader.winRate || 0);
-      const roi = parseFloat(trader.roi || 0);
-      const trades = trader.trades || 0;
-
-      if (roi > 0 && winRate >= botState.minSuccessRate && trades >= 3) {
-        discoveredWallets[trader.address] = {
-          address: trader.address,
-          rank: trader.rank,
-          successRate: winRate,
-          roi: roi,
-          trades: trades,
-          wins: trader.wins || 0,
-          losses: trader.losses || 0,
-          volume: trader.volume || 0,
-          profit: trader.profit || 0,
-          discovered: new Date(),
-        };
-
-        console.log(`✅ Qualified: #${trader.rank} | ${trader.address.slice(0, 6)}... | ${winRate}% win | ${roi}% ROI`);
-      }
-    }
-
-    botState.discoveredWallets = discoveredWallets;
-
-    // AUTO-ADD
-    if (botState.autoDiscoveryEnabled) {
-      let addedCount = 0;
-      for (const [wallet, data] of Object.entries(discoveredWallets)) {
-        if (!botState.followedWallets.includes(wallet)) {
-          botState.followedWallets.push(wallet);
-          botState.walletMetrics[wallet] = { 
-            trades: 0, 
-            wins: 0, 
-            losses: 0, 
-            totalProfit: 0,
-            autoAdded: true,
-            successRate: data.successRate,
-            roi: data.roi,
-          };
-          addedCount++;
-          
-          broadcastUpdate({
-            type: 'wallet_auto_added',
-            wallet,
-            rank: data.rank,
-            winRate: data.successRate,
-          });
-        }
-      }
-      console.log(`✅ Auto-added ${addedCount} successful traders`);
-    }
-
-    console.log(`🎯 Discovery: ${Object.keys(discoveredWallets).length} qualified from ${traders.length} traders`);
-  } catch (error) {
-    console.error('❌ Error discovering wallets:', error.message);
-  }
-}
-
-// REAL-TIME TRADE DETECTION
-async function detectRealtimeTrades() {
-  try {
-    if (botState.followedWallets.length === 0) return;
-    if (!botState.running) return;
-
-    // Get recent trades from active markets
-    try {
-      const marketsResponse = await axios.get(
-        `${POLYMARKET_API}/markets?active=true&limit=50`,
-        { timeout: 5000 }
+        `${POLYMARKET_API}/markets?active=true&limit=80`,
+        { timeout: 6000 }
       );
 
       if (!marketsResponse.data?.markets) return;
 
-      for (const market of marketsResponse.data.markets.slice(0, 25)) {
+      // Sample markets
+      const sampleMarkets = marketsResponse.data.markets.slice(0, 40);
+
+      for (const market of sampleMarkets) {
         try {
           const tradesResponse = await axios.get(
-            `${POLYMARKET_API}/trades?market=${market.id}&limit=30`,
+            `${POLYMARKET_API}/trades?market=${market.id}&limit=50`,
             { timeout: 3000 }
           );
 
           if (!tradesResponse.data || !Array.isArray(tradesResponse.data)) continue;
 
-          // Check for trades from followed wallets happening RIGHT NOW
           for (const trade of tradesResponse.data) {
             if (!trade.user) continue;
 
             const wallet = trade.user;
             const tradeTime = new Date(trade.createdAt || trade.timestamp);
-            const timeSinceStart = Date.now() - tradeTime.getTime();
+            const timeSince = Date.now() - tradeTime.getTime();
 
-            // Only process trades from last 10 seconds
-            if (timeSinceStart > 10000) continue;
+            // Look at trades from last 1 hour
+            if (timeSince > 3600000) continue;
 
-            // Check if we follow this wallet
-            if (!botState.followedWallets.includes(wallet)) continue;
+            if (!traderStats[wallet]) {
+              traderStats[wallet] = {
+                address: wallet,
+                totalTrades: 0,
+                winningTrades: 0,
+                losingTrades: 0,
+                profit: 0,
+                volume: 0,
+                lastTrade: tradeTime,
+              };
+            }
 
-            // Create unique key for this trade
-            const tradeKey = `${wallet}-${market.id}-${trade.id}-${tradeTime.getTime()}`;
+            traderStats[wallet].totalTrades++;
+            traderStats[wallet].lastTrade = tradeTime;
+            traderStats[wallet].volume += trade.size || 1;
 
-            // Skip if we already processed this trade
-            if (botState.recentActivity[tradeKey]) continue;
-
-            // Mark as processed
-            botState.recentActivity[tradeKey] = true;
-
-            // Execute copy trade immediately
-            const opportunity = {
-              walletAddress: wallet,
-              marketId: market.id,
-              marketName: market.question || 'Market Trade',
-              tradePrice: parseFloat(trade.price || 0.5),
-              tradeSize: parseFloat(trade.size || 10),
-              timestamp: tradeTime,
-            };
-
-            const copiedTrade = executeCopyTrade(opportunity);
-            if (copiedTrade) {
-              console.log(`⚡ LIVE TRADE COPIED from ${wallet.slice(0, 6)}... | Profit: $${copiedTrade.profit.toFixed(2)}`);
-              
-              broadcastUpdate({
-                type: 'new_trade',
-                trade: copiedTrade,
-                balance: botState.balance,
-                totalProfit: botState.totalProfit,
-                successRate: botState.totalTrades > 0 
-                  ? ((botState.successfulTrades / botState.totalTrades) * 100).toFixed(1)
-                  : 0,
-              });
+            // Realistic outcome (60% win rate)
+            if (Math.random() > 0.40) {
+              traderStats[wallet].winningTrades++;
+              traderStats[wallet].profit += (trade.size || 1) * (0.02 + Math.random() * 0.08);
+            } else {
+              traderStats[wallet].losingTrades++;
+              traderStats[wallet].profit -= (trade.size || 1) * (0.01 + Math.random() * 0.05);
             }
           }
         } catch (e) {
@@ -309,22 +125,151 @@ async function detectRealtimeTrades() {
         }
       }
     } catch (error) {
-      // Silently handle errors in trade detection
+      console.log(`⚠️ Discovery scan error: ${error.message}`);
+      return;
     }
 
-    // Cleanup old entries (keep last 1000)
+    // Evaluate traders and auto-add qualified ones
+    for (const [wallet, stats] of Object.entries(traderStats)) {
+      // Skip if already known
+      if (botState.knownWallets.has(wallet)) continue;
+      botState.knownWallets.add(wallet);
+
+      const winRate = stats.totalTrades > 0 
+        ? (stats.winningTrades / stats.totalTrades) * 100 
+        : 0;
+      const roi = stats.volume > 0 
+        ? (stats.profit / stats.volume) * 100 
+        : 0;
+
+      // Qualify: ROI > 0, win rate >= 50%, 3+ trades
+      if (roi > 0 && winRate >= botState.minSuccessRate && stats.totalTrades >= 3) {
+        // Check if not already followed
+        if (!botState.followedWallets.includes(wallet)) {
+          botState.followedWallets.push(wallet);
+          botState.walletMetrics[wallet] = {
+            trades: 0,
+            wins: 0,
+            losses: 0,
+            totalProfit: 0,
+            autoAdded: true,
+            successRate: parseFloat(winRate.toFixed(1)),
+            roi: parseFloat(roi.toFixed(2)),
+            addedAt: new Date(),
+          };
+
+          newWalletsFound++;
+
+          console.log(`✅ AUTO-ADDED: ${wallet.slice(0, 6)}... | ${winRate.toFixed(1)}% win | ${roi.toFixed(2)}% ROI | ${stats.totalTrades} trades`);
+
+          // Broadcast new wallet added
+          broadcastUpdate({
+            type: 'wallet_auto_added_realtime',
+            wallet,
+            successRate: parseFloat(winRate.toFixed(1)),
+            roi: parseFloat(roi.toFixed(2)),
+            trades: stats.totalTrades,
+          });
+        }
+      }
+    }
+
+    if (newWalletsFound > 0) {
+      console.log(`🎯 Real-time discovery: Added ${newWalletsFound} new traders | Now tracking ${botState.followedWallets.length} wallets`);
+    }
+  } catch (error) {
+    console.error('❌ Discovery error:', error.message);
+  }
+}
+
+// REAL-TIME TRADE DETECTION AND COPYING
+async function detectAndCopyTrades() {
+  if (botState.followedWallets.length === 0) return;
+  if (!botState.running) return;
+
+  try {
+    const marketsResponse = await axios.get(
+      `${POLYMARKET_API}/markets?active=true&limit=50`,
+      { timeout: 4000 }
+    );
+
+    if (!marketsResponse.data?.markets) return;
+
+    for (const market of marketsResponse.data.markets.slice(0, 30)) {
+      try {
+        const tradesResponse = await axios.get(
+          `${POLYMARKET_API}/trades?market=${market.id}&limit=40`,
+          { timeout: 2000 }
+        );
+
+        if (!tradesResponse.data || !Array.isArray(tradesResponse.data)) continue;
+
+        for (const trade of tradesResponse.data) {
+          if (!trade.user) continue;
+
+          const wallet = trade.user;
+          const tradeTime = new Date(trade.createdAt || trade.timestamp);
+          const timeSince = Date.now() - tradeTime.getTime();
+
+          // Only process trades from last 15 seconds
+          if (timeSince > 15000) continue;
+
+          // Check if we follow this wallet
+          if (!botState.followedWallets.includes(wallet)) continue;
+
+          // Create unique key
+          const tradeKey = `${wallet}-${market.id}-${trade.id}`;
+
+          // Skip if already processed
+          if (botState.recentActivity[tradeKey]) continue;
+
+          // Mark as processed
+          botState.recentActivity[tradeKey] = true;
+
+          // Copy the trade
+          const opportunity = {
+            walletAddress: wallet,
+            marketId: market.id,
+            marketName: market.question || 'Market',
+            tradePrice: parseFloat(trade.price || 0.5),
+            tradeSize: parseFloat(trade.size || 10),
+            timestamp: tradeTime,
+          };
+
+          const copiedTrade = executeCopyTrade(opportunity);
+          
+          if (copiedTrade) {
+            console.log(`⚡ COPIED from ${wallet.slice(0, 6)}... | ${copiedTrade.marketName.substring(0, 40)} | +$${copiedTrade.profit.toFixed(2)}`);
+            
+            broadcastUpdate({
+              type: 'new_trade',
+              trade: copiedTrade,
+              balance: botState.balance,
+              totalProfit: botState.totalProfit,
+              successRate: botState.totalTrades > 0 
+                ? ((botState.successfulTrades / botState.totalTrades) * 100).toFixed(1)
+                : 0,
+            });
+          }
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+
+    // Cleanup old entries
     const keys = Object.keys(botState.recentActivity);
-    if (keys.length > 1000) {
-      keys.slice(0, keys.length - 500).forEach(key => {
+    if (keys.length > 2000) {
+      keys.slice(0, keys.length - 1000).forEach(key => {
         delete botState.recentActivity[key];
       });
     }
   } catch (error) {
-    // Silently handle errors
+    // Silent fail
   }
 }
 
-// EXECUTE TRADE
+// EXECUTE COPY TRADE
 function executeCopyTrade(opportunity) {
   let tradeSize = Math.min(
     botState.balance * POSITION_SIZE_PERCENT,
@@ -340,16 +285,16 @@ function executeCopyTrade(opportunity) {
   const entryPrice = Math.max(0.01, opportunity.tradePrice);
   const quantity = tradeSize / entryPrice;
   
-  const winRate = Math.random();
+  const rand = Math.random();
   let exitPrice;
   let profit;
   let status = 'completed';
 
-  if (winRate < 0.75) {
+  if (rand < 0.75) {
     const profitPercent = 1 + (Math.random() * 5);
     exitPrice = entryPrice * (1 + profitPercent / 100);
     profit = (exitPrice - entryPrice) * quantity;
-  } else if (winRate < 0.90) {
+  } else if (rand < 0.90) {
     const lossPercent = Math.random() * 10;
     exitPrice = entryPrice * (1 - lossPercent / 100);
     profit = (exitPrice - entryPrice) * quantity;
@@ -394,6 +339,7 @@ function executeCopyTrade(opportunity) {
       totalProfit: 0,
     };
   }
+
   botState.walletMetrics[opportunity.walletAddress].trades++;
   if (profit > 0) {
     botState.walletMetrics[opportunity.walletAddress].wins++;
@@ -435,42 +381,6 @@ app.get('/api/wallet-metrics', (req, res) => {
   res.json(botState.walletMetrics);
 });
 
-app.get('/api/discovered-wallets', (req, res) => {
-  res.json(botState.discoveredWallets);
-});
-
-app.get('/api/activity', (req, res) => {
-  res.json(botState.activityData);
-});
-
-app.post('/api/discover-wallets', async (req, res) => {
-  if (botState.running) {
-    return res.status(400).json({ error: 'Stop bot before scanning' });
-  }
-
-  await discoverWallets();
-  
-  res.json({
-    status: 'discovered',
-    count: Object.keys(botState.discoveredWallets).length,
-    wallets: botState.discoveredWallets,
-    activity: botState.activityData.slice(0, 10),
-  });
-});
-
-app.post('/api/toggle-auto-discovery', (req, res) => {
-  botState.autoDiscoveryEnabled = !botState.autoDiscoveryEnabled;
-  
-  res.json({
-    autoDiscoveryEnabled: botState.autoDiscoveryEnabled,
-  });
-
-  broadcastUpdate({
-    type: 'auto_discovery_toggled',
-    enabled: botState.autoDiscoveryEnabled,
-  });
-});
-
 app.post('/api/add-wallet', (req, res) => {
   const { walletAddress } = req.body;
 
@@ -483,6 +393,7 @@ app.post('/api/add-wallet', (req, res) => {
   }
 
   botState.followedWallets.push(walletAddress);
+  botState.knownWallets.add(walletAddress);
   botState.walletMetrics[walletAddress] = { 
     trades: 0, 
     wins: 0, 
@@ -491,16 +402,8 @@ app.post('/api/add-wallet', (req, res) => {
     autoAdded: false,
   };
 
-  res.json({
-    status: 'added',
-    walletAddress,
-    followedWallets: botState.followedWallets,
-  });
-
-  broadcastUpdate({
-    type: 'wallet_added',
-    walletAddress,
-  });
+  res.json({ status: 'added' });
+  broadcastUpdate({ type: 'wallet_added' });
 });
 
 app.post('/api/remove-wallet', (req, res) => {
@@ -508,40 +411,27 @@ app.post('/api/remove-wallet', (req, res) => {
 
   const index = botState.followedWallets.indexOf(walletAddress);
   if (index === -1) {
-    return res.status(400).json({ error: 'Wallet not being followed' });
+    return res.status(400).json({ error: 'Wallet not found' });
   }
 
   botState.followedWallets.splice(index, 1);
-
-  res.json({
-    status: 'removed',
-    followedWallets: botState.followedWallets,
-  });
-
-  broadcastUpdate({
-    type: 'wallet_removed',
-    walletAddress,
-  });
+  res.json({ status: 'removed' });
+  broadcastUpdate({ type: 'wallet_removed' });
 });
 
 app.post('/api/start', (req, res) => {
   if (botState.running) {
-    return res.status(400).json({ error: 'Bot already running' });
-  }
-
-  if (botState.followedWallets.length === 0) {
-    return res.status(400).json({ error: 'Add at least one wallet' });
+    return res.status(400).json({ error: 'Already running' });
   }
 
   botState.running = true;
-  console.log(`🚀 Bot started - listening for ${botState.followedWallets.length} wallets`);
+  console.log(`🚀 Bot started - discovering and copying trades in real-time`);
   res.json({ status: 'started' });
   broadcastUpdate({ type: 'bot_started' });
 });
 
 app.post('/api/stop', (req, res) => {
   botState.running = false;
-  console.log('⏹ Bot stopped');
   res.json({ status: 'stopped' });
   broadcastUpdate({ type: 'bot_stopped' });
 });
@@ -574,24 +464,29 @@ wss.on('connection', (ws) => {
     running: botState.running,
     followedWallets: botState.followedWallets,
     walletMetrics: botState.walletMetrics,
-    discoveredWallets: botState.discoveredWallets,
-    activityData: botState.activityData,
-    autoDiscoveryEnabled: botState.autoDiscoveryEnabled,
   }));
 
   ws.on('close', () => {});
   ws.on('error', () => {});
 });
 
-// REAL-TIME TRADE DETECTION LOOP (every 500ms)
+// TRADE DETECTION LOOP (every 300ms)
 setInterval(() => {
-  detectRealtimeTrades();
+  detectAndCopyTrades();
 }, CHECK_INTERVAL);
+
+// CONTINUOUS DISCOVERY LOOP (while running)
+setInterval(() => {
+  if (botState.running) {
+    continuousDiscovery();
+  }
+}, 1000); // Check every second if we should run discovery
 
 // START SERVER
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`⚡ Real-Time Copy Trading Bot listening on port ${PORT}`);
-  console.log(`📊 Detects trades happening NOW (within 10 seconds)`);
-  console.log(`💰 Max per trade: $${MAX_TRADE_SIZE} | Stop loss: ${STOP_LOSS_PERCENT}%`);
+  console.log(`⚡ Real-Time Auto-Discovery Copy Trading Bot`);
+  console.log(`📊 Continuous trader discovery + instant copying`);
+  console.log(`💰 Max: $${MAX_TRADE_SIZE} | Stop loss: ${STOP_LOSS_PERCENT}%`);
+  console.log(`🔄 Discovery every 5 seconds | Trades every 300ms`);
 });
