@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Polymarket Wallet Tracker Bot</title>
+  <title>Polymarket Leaderboard Tracker Bot</title>
   <style>
     * {
       margin: 0;
@@ -186,6 +186,22 @@
       align-items: center;
     }
 
+    .btn-discover {
+      background: var(--accent);
+      color: var(--dark-bg);
+      padding: 8px 14px;
+      font-size: 12px;
+    }
+
+    .btn-discover:hover:not(:disabled) {
+      background: #ffd300;
+    }
+
+    .btn-discover:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     .toggle-switch {
       display: inline-flex;
       align-items: center;
@@ -238,60 +254,103 @@
       transform: translateX(20px);
     }
 
-    .wallet-input {
-      display: flex;
-      gap: 8px;
+    .leaderboard-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
       margin-bottom: 12px;
     }
 
-    input[type="text"] {
-      flex: 1;
-      padding: 8px 12px;
+    .leaderboard-table th {
       background: rgba(0, 212, 255, 0.05);
-      border: 1px solid rgba(0, 212, 255, 0.2);
-      border-radius: 6px;
-      color: var(--text-light);
-      font-size: 12px;
+      padding: 8px;
+      text-align: left;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+    }
+
+    .leaderboard-table td {
+      padding: 8px;
+      border-bottom: 1px solid rgba(0, 212, 255, 0.05);
       font-family: 'JetBrains Mono', monospace;
     }
 
-    input[type="text"]:focus {
-      outline: none;
-      border-color: var(--primary);
-      background: rgba(0, 212, 255, 0.1);
+    .leaderboard-table tr:hover {
+      background: rgba(0, 212, 255, 0.05);
     }
 
-    .btn-add {
+    .rank-badge {
+      background: linear-gradient(135deg, var(--accent), var(--secondary));
+      color: white;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 700;
+      font-size: 10px;
+    }
+
+    .win-rate {
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    .wallet-address {
+      color: var(--primary);
+      font-size: 10px;
+    }
+
+    .discovered-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+
+    .discovered-item {
+      background: rgba(255, 190, 11, 0.05);
+      border: 1px solid rgba(255, 190, 11, 0.2);
+      border-radius: 6px;
+      padding: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      gap: 8px;
+    }
+
+    .discovered-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .discovered-address {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent);
+      font-size: 10px;
+    }
+
+    .discovered-stats {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .btn-add-discovered {
       background: var(--success);
       color: var(--dark-bg);
-      padding: 8px 14px;
-    }
-
-    .btn-add:hover {
-      background: #00e89d;
-    }
-
-    .btn-discover {
-      background: var(--accent);
-      color: var(--dark-bg);
-      padding: 8px 14px;
-      font-size: 12px;
-    }
-
-    .btn-discover:hover:not(:disabled) {
-      background: #ffd300;
-    }
-
-    .btn-discover:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+      padding: 4px 10px;
+      font-size: 10px;
     }
 
     .wallet-list {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      max-height: 300px;
+      max-height: 250px;
       overflow-y: auto;
     }
 
@@ -312,11 +371,17 @@
       background: rgba(0, 217, 126, 0.05);
     }
 
+    .wallet-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
     .wallet-address {
       font-family: 'JetBrains Mono', monospace;
       color: var(--primary);
-      flex: 1;
-      word-break: break-all;
+      font-size: 10px;
     }
 
     .wallet-badge {
@@ -326,11 +391,8 @@
       border-radius: 3px;
       font-size: 10px;
       font-weight: 600;
-    }
-
-    .wallet-stats {
-      font-size: 10px;
-      color: var(--text-muted);
+      display: inline-block;
+      width: fit-content;
     }
 
     .btn-remove {
@@ -344,54 +406,12 @@
       background: #ff5a7a;
     }
 
-    .discovered-wallets {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-height: 200px;
-      overflow-y: auto;
-    }
-
-    .discovered-item {
-      background: rgba(255, 190, 11, 0.05);
-      border: 1px solid rgba(255, 190, 11, 0.2);
-      border-radius: 6px;
-      padding: 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 11px;
-    }
-
-    .discovered-address {
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--accent);
-      flex: 1;
-      word-break: break-all;
-    }
-
-    .success-badge {
-      background: var(--success);
-      color: var(--dark-bg);
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-weight: 600;
-      font-size: 10px;
-    }
-
-    .btn-add-discovered {
-      background: var(--success);
-      color: var(--dark-bg);
-      padding: 4px 10px;
-      font-size: 10px;
-    }
-
     .activity-feed {
       background: var(--card-bg);
       border: 1px solid rgba(0, 212, 255, 0.1);
       border-radius: 10px;
       padding: 16px;
-      height: 300px;
+      height: 350px;
       display: flex;
       flex-direction: column;
     }
@@ -474,19 +494,6 @@
       font-size: 11px;
     }
 
-    .activity-log::-webkit-scrollbar {
-      width: 4px;
-    }
-
-    .activity-log::-webkit-scrollbar-track {
-      background: rgba(0, 212, 255, 0.05);
-    }
-
-    .activity-log::-webkit-scrollbar-thumb {
-      background: rgba(0, 212, 255, 0.2);
-      border-radius: 2px;
-    }
-
     .loading {
       display: inline-block;
       width: 12px;
@@ -500,6 +507,19 @@
     @keyframes spin {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
+    }
+
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 212, 255, 0.05);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 212, 255, 0.2);
+      border-radius: 2px;
     }
 
     @media (max-width: 1024px) {
@@ -516,6 +536,9 @@
       .metrics-grid {
         grid-template-columns: 1fr 1fr;
       }
+      .activity-feed {
+        height: 250px;
+      }
     }
   </style>
 </head>
@@ -524,8 +547,8 @@
     <!-- Header -->
     <div class="header">
       <div class="title">
-        <span class="title-icon">🤖</span>
-        <div>Wallet Tracker Bot</div>
+        <span class="title-icon">🏆</span>
+        <div>Leaderboard Tracker Bot</div>
       </div>
       <div class="controls">
         <button id="start-btn" class="btn-start">▶ Start</button>
@@ -536,7 +559,7 @@
 
     <!-- Main Grid -->
     <div class="main-grid">
-      <!-- Left: Metrics & Wallet Management -->
+      <!-- Left: Metrics & Controls -->
       <div>
         <!-- Metrics -->
         <div class="metrics-grid">
@@ -571,29 +594,10 @@
           </div>
         </div>
 
-        <!-- Wallet Management -->
+        <!-- Leaderboard Discovery -->
         <div class="section" style="margin-top: 15px;">
           <div class="section-title">
-            <div>Manual Wallet</div>
-          </div>
-          <div class="wallet-input">
-            <input 
-              type="text" 
-              id="wallet-input" 
-              placeholder="0x..." 
-              maxlength="42"
-            >
-            <button class="btn-add" id="add-wallet-btn">Add</button>
-          </div>
-          <div class="wallet-list" id="wallet-list">
-            <div class="empty-state">No wallets added</div>
-          </div>
-        </div>
-
-        <!-- Auto-Discovery -->
-        <div class="section">
-          <div class="section-title">
-            <div>🔍 Auto-Discovery</div>
+            <div>🏆 Today's Leaderboard</div>
             <div class="toggle-switch">
               <span>Auto-Add:</span>
               <label class="switch">
@@ -603,15 +607,21 @@
             </div>
           </div>
 
-          <button class="btn-discover" id="discover-btn">Find 50%+ Success Wallets</button>
+          <button class="btn-discover" id="discover-btn">Scan Leaderboard (50%+ Win)</button>
 
-          <div style="margin-top: 12px;">
-            <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">
-              Discovered wallets (50%+ success rate):
-            </div>
-            <div class="discovered-wallets" id="discovered-list">
-              <div class="empty-state">No wallets discovered yet</div>
-            </div>
+          <div style="margin-top: 12px; font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">
+            Top performers from today's leaderboard:
+          </div>
+          <div class="discovered-list" id="discovered-list">
+            <div class="empty-state">Click "Scan Leaderboard" to find top traders</div>
+          </div>
+        </div>
+
+        <!-- Followed Wallets -->
+        <div class="section">
+          <div class="section-title">Followed Wallets</div>
+          <div class="wallet-list" id="wallet-list">
+            <div class="empty-state">No wallets added yet</div>
           </div>
         </div>
       </div>
@@ -626,6 +636,29 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Leaderboard Top 10 -->
+    <div class="section">
+      <div class="section-title">🏅 Top 10 Traders Today</div>
+      <table class="leaderboard-table" id="leaderboard-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Wallet</th>
+            <th>Win Rate</th>
+            <th>Trades</th>
+            <th>ROI</th>
+            <th>Volume</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="leaderboard-body">
+          <tr>
+            <td colspan="7" class="empty-state">Scan leaderboard to see top traders</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <!-- Trades Table -->
@@ -658,6 +691,7 @@
     let tradeHistory = [];
     let wallets = [];
     let discoveredWallets = {};
+    let leaderboardData = [];
     let autoDiscoveryEnabled = false;
 
     const startBtn = document.getElementById('start-btn');
@@ -665,8 +699,6 @@
     const resetBtn = document.getElementById('reset-btn');
     const discoverBtn = document.getElementById('discover-btn');
     const autoDiscoveryToggle = document.getElementById('auto-discovery-toggle');
-    const addWalletBtn = document.getElementById('add-wallet-btn');
-    const walletInput = document.getElementById('wallet-input');
     const walletList = document.getElementById('wallet-list');
     const discoveredList = document.getElementById('discovered-list');
     const balanceEl = document.getElementById('balance');
@@ -675,6 +707,7 @@
     const tradesCountEl = document.getElementById('trades-count');
     const winsEl = document.getElementById('wins');
     const lossesEl = document.getElementById('losses');
+    const leaderboardBody = document.getElementById('leaderboard-body');
     const tradesBody = document.getElementById('trades-body');
     const activityLog = document.getElementById('activity-log');
 
@@ -708,6 +741,28 @@
       lossesEl.textContent = data.failedTrades || 0;
     }
 
+    function updateLeaderboard(leaderboard) {
+      if (!leaderboard || leaderboard.length === 0) {
+        leaderboardBody.innerHTML = '<tr><td colspan="7" class="empty-state">No leaderboard data</td></tr>';
+        return;
+      }
+
+      leaderboardBody.innerHTML = leaderboard
+        .slice(0, 10)
+        .map((user) => `
+          <tr>
+            <td><span class="rank-badge">#${user.rank}</span></td>
+            <td><span class="wallet-address">${user.address.slice(0, 8)}...</span></td>
+            <td><span class="win-rate">${user.winRate}%</span></td>
+            <td>${user.trades}</td>
+            <td>${user.roi}%</td>
+            <td>${formatCurrency(user.volume || 0)}</td>
+            <td><button class="btn-add-discovered" onclick="addDiscovered('${user.address}')">+ Add</button></td>
+          </tr>
+        `)
+        .join('');
+    }
+
     function updateTradesTable(trades) {
       if (trades.length === 0) {
         tradesBody.innerHTML = '<tr><td colspan="8" class="empty-state">No trades yet</td></tr>';
@@ -737,7 +792,7 @@
 
     function updateWalletList(walletList, metrics) {
       if (walletList.length === 0) {
-        document.getElementById('wallet-list').innerHTML = '<div class="empty-state">No wallets added</div>';
+        document.getElementById('wallet-list').innerHTML = '<div class="empty-state">No wallets added yet</div>';
         return;
       }
 
@@ -746,11 +801,16 @@
           const metric = metrics[wallet] || { trades: 0, wins: 0, losses: 0 };
           const winRate = metric.trades > 0 ? ((metric.wins / metric.trades) * 100).toFixed(0) : '-';
           const isAuto = metric.autoAdded ? ' auto-added' : '';
+          const rank = metric.leaderboardRank ? `#${metric.leaderboardRank}` : '-';
           return `
             <div class="wallet-item${isAuto}">
-              <div class="wallet-address">${wallet}</div>
+              <div class="wallet-info">
+                <div class="wallet-address">${wallet.slice(0, 6)}...</div>
+                <div style="font-size: 9px; color: var(--text-muted);">
+                  Rank: ${rank} | ${metric.trades} trades | ${winRate}% wins
+                </div>
+              </div>
               ${metric.autoAdded ? '<div class="wallet-badge">AUTO</div>' : ''}
-              <div class="wallet-stats">${metric.trades} | ${winRate}%</div>
               <button class="btn-remove" onclick="removeWallet('${wallet}')">✕</button>
             </div>
           `;
@@ -760,15 +820,20 @@
 
     function updateDiscoveredList(discovered) {
       if (Object.keys(discovered).length === 0) {
-        document.getElementById('discovered-list').innerHTML = '<div class="empty-state">No wallets discovered</div>';
+        document.getElementById('discovered-list').innerHTML = '<div class="empty-state">No traders discovered yet</div>';
         return;
       }
 
       document.getElementById('discovered-list').innerHTML = Object.entries(discovered)
+        .slice(0, 10)
         .map(([wallet, data]) => `
           <div class="discovered-item">
-            <div class="discovered-address">${wallet}</div>
-            <div class="success-badge">${data.successRate}%</div>
+            <div class="discovered-info">
+              <div class="discovered-address">${wallet.slice(0, 10)}...</div>
+              <div class="discovered-stats">
+                Rank #${data.rank} | ${data.successRate}% win | ${data.trades} trades | ${data.roi}% ROI
+              </div>
+            </div>
             <button class="btn-add-discovered" onclick="addDiscovered('${wallet}')">+ Add</button>
           </div>
         `)
@@ -778,7 +843,7 @@
     async function discoverWallets() {
       discoverBtn.disabled = true;
       discoverBtn.innerHTML = '<span class="loading"></span> Scanning...';
-      addActivity('🔍 Starting wallet discovery...', 'info');
+      addActivity('📊 Scanning Polymarket leaderboard...', 'info');
 
       try {
         const response = await fetch('/api/discover-wallets', { method: 'POST' });
@@ -786,48 +851,34 @@
 
         if (response.ok) {
           discoveredWallets = data.wallets;
+          leaderboardData = data.leaderboard || [];
           updateDiscoveredList(discoveredWallets);
-          addActivity(`✅ Found ${data.count} wallets with 90%+ success rate`, 'info');
+          updateLeaderboard(leaderboardData);
+          addActivity(`✅ Found ${data.count} traders with 50%+ win rate`, 'info');
         } else {
-          addActivity('⚠️ Discovery failed', 'error');
+          addActivity('⚠️ Leaderboard scan failed', 'error');
         }
       } catch (error) {
-        addActivity('❌ Discovery error', 'error');
+        addActivity('❌ Scan error', 'error');
       }
 
       discoverBtn.disabled = false;
-      discoverBtn.innerHTML = 'Find 90%+ Success Wallets';
+      discoverBtn.innerHTML = 'Scan Leaderboard (50%+ Win)';
     }
 
     async function addDiscovered(wallet) {
-      await addWalletManually(wallet);
-    }
-
-    async function addWalletManually(address) {
       const response = await fetch('/api/add-wallet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ walletAddress: address }),
+        body: JSON.stringify({ walletAddress: wallet }),
       });
 
       if (response.ok) {
-        walletInput.value = '';
-        addActivity(`✅ Wallet added: ${address.slice(0, 6)}...`, 'info');
+        addActivity(`✅ Added: ${wallet.slice(0, 6)}...`, 'info');
       } else {
         const error = await response.json();
         addActivity(`❌ ${error.error}`, 'error');
       }
-    }
-
-    async function addWallet() {
-      const address = walletInput.value.trim();
-
-      if (!address.match(/^0x[a-fA-F0-9]{40}$/)) {
-        addActivity('❌ Invalid wallet address format', 'error');
-        return;
-      }
-
-      await addWalletManually(address);
     }
 
     async function removeWallet(address) {
@@ -838,7 +889,7 @@
       });
 
       if (response.ok) {
-        addActivity(`❌ Wallet removed: ${address.slice(0, 6)}...`, 'info');
+        addActivity(`❌ Removed: ${address.slice(0, 6)}...`, 'info');
       }
     }
 
@@ -848,7 +899,7 @@
       const response = await fetch('/api/toggle-auto-discovery', { method: 'POST' });
       if (response.ok) {
         autoDiscoveryEnabled = !autoDiscoveryEnabled;
-        addActivity(`${autoDiscoveryEnabled ? '✅' : '❌'} Auto-discovery ${autoDiscoveryEnabled ? 'enabled' : 'disabled'}`, 'info');
+        addActivity(`${autoDiscoveryEnabled ? '✅' : '❌'} Auto-add ${autoDiscoveryEnabled ? 'enabled' : 'disabled'}`, 'info');
       }
     });
 
@@ -858,7 +909,7 @@
         botRunning = true;
         startBtn.disabled = true;
         stopBtn.disabled = false;
-        addActivity('🚀 Bot started - copying wallet trades', 'info');
+        addActivity('🚀 Bot started - copying top trader positions', 'info');
       } else {
         const error = await response.json();
         addActivity(`❌ ${error.error}`, 'error');
@@ -884,11 +935,6 @@
       }
     });
 
-    addWalletBtn.addEventListener('click', addWallet);
-    walletInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') addWallet();
-    });
-
     function connectWebSocket() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const ws = new WebSocket(`${protocol}//${window.location.host}`);
@@ -905,8 +951,10 @@
           updateTradesTable(data.trades);
           updateWalletList(data.followedWallets, data.walletMetrics);
           updateDiscoveredList(data.discoveredWallets);
+          updateLeaderboard(data.leaderboardData);
           wallets = data.followedWallets;
           discoveredWallets = data.discoveredWallets;
+          leaderboardData = data.leaderboardData;
           autoDiscoveryEnabled = data.autoDiscoveryEnabled;
           autoDiscoveryToggle.checked = autoDiscoveryEnabled;
           tradeHistory = data.trades;
@@ -920,14 +968,9 @@
           updateMetrics(data);
           updateTradesTable(tradeHistory);
           addActivity(`💰 Trade: ${formatCurrency(data.trade.profit)} | ${data.trade.profitPercent.toFixed(1)}%`, 'trade');
-        } else if (data.type === 'wallet_added') {
-          wallets.push(data.walletAddress);
-          addActivity(`✅ Wallet connected`, 'info');
         } else if (data.type === 'wallet_auto_added') {
           wallets.push(data.wallet);
-          addActivity(`✅ Auto-added: ${data.wallet.slice(0, 6)}... (${data.successRate}%)`, 'info');
-        } else if (data.type === 'wallet_removed') {
-          wallets = wallets.filter(w => w !== data.walletAddress);
+          addActivity(`✅ Auto-added: #${data.rank} (${data.winRate}%)`, 'info');
         } else if (data.type === 'bot_started') {
           botRunning = true;
           startBtn.disabled = true;
