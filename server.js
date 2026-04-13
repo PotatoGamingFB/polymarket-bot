@@ -21,8 +21,11 @@ const botState = {
   running: false,
   totalTrades: 0,
   totalProfit: 0,
+  successfulTrades: 0,
+  failedTrades: 0,
   markets: [],
-  monitoredMarkets: new Set(),
+  followedWallets: [],
+  walletMetrics: {},
 };
 
 // ===== POLYMARKET API CONFIG =====
@@ -32,48 +35,50 @@ const POLYMARKET_API_KEY = '019d843d-8a2a-7b9f-8f66-bf8156cd64c4';
 const WALLET_ADDRESS = '0x7410e00786d297339f5e8a76297c9d0baa2b6c1a';
 const CHECK_INTERVAL = 1000;
 
-// ===== DETECT ARBITRAGE =====
-async function detectArbitrageOpportunities() {
+// ===== TRADING PARAMETERS =====
+const MAX_TRADE_SIZE = 6; // Max $6 per trade
+const STOP_LOSS_PERCENT = 20; // 20% stop loss
+const POSITION_SIZE_PERCENT = 0.12; // 12% of balance per trade
+
+// ===== GET WHALE WALLET TRADES =====
+async function getWalletTrades(walletAddress) {
   try {
-    const marketsResponse = await axios.get(
-      `${POLYMARKET_API}/markets?active=true&limit=50`,
+    const response = await axios.get(
+      `${POLYMARKET_API}/user-trades?user=${walletAddress}&limit=10`,
       { timeout: 5000 }
     );
+    return response.data || [];
+  } catch (error) {
+    console.error(`Error fetching trades for ${walletAddress}:`, error.message);
+    return [];
+  }
+}
 
-    if (!marketsResponse.data?.markets) return [];
+// ===== DETECT WALLET TRADING OPPORTUNITIES =====
+async function detectWalletOpportunities() {
+  try {
+    if (botState.followedWallets.length === 0) return [];
 
     const opportunities = [];
 
-    for (const market of marketsResponse.data.markets.slice(0, 10)) {
+    for (const wallet of botState.followedWallets) {
       try {
-        const orderBookResponse = await axios.get(
-          `${POLYMARKET_ORDERBOOK}/book/${market.id}`,
-          { timeout: 5000 }
-        );
+        const trades = await getWalletTrades(wallet);
 
-        const { bids, asks } = orderBookResponse.data;
+        for (const trade of trades) {
+          // Only track recent trades (within last 5 seconds)
+          const tradeTime = new Date(trade.createdAt);
+          const timeDiff = Date.now() - tradeTime.getTime();
 
-        if (!bids?.length || !asks?.length) continue;
-
-        const bidVolume = bids.reduce((sum, b) => sum + (b.size || 0), 0);
-        const askVolume = asks.reduce((sum, a) => sum + (a.size || 0), 0);
-        const imbalanceRatio = bidVolume / askVolume;
-
-        if (imbalanceRatio > 1.5 || imbalanceRatio < 0.67) {
-          const spreadPercent = ((asks[0].price - bids[0].price) / bids[0].price) * 100;
-          
-          if (spreadPercent > 1) {
+          if (timeDiff < 5000 && trade.outcome_short_price) {
             opportunities.push({
-              marketId: market.id,
-              marketName: market.question,
-              bidPrice: parseFloat(bids[0].price),
-              askPrice: parseFloat(asks[0].price),
-              spreadPercent,
-              imbalanceRatio,
-              bidVolume,
-              askVolume,
-              timestamp: new Date(),
-              profitPotential: spreadPercent * 0.8,
+              walletAddress: wallet,
+              marketId: trade.id,
+              marketName: trade.question,
+              tradePrice: parseFloat(trade.outcome_short_price),
+              tradeSize: parseFloat(trade.size),
+              tradeType: 'copy',
+              timestamp: tradeTime,
             });
           }
         }
@@ -84,44 +89,100 @@ async function detectArbitrageOpportunities() {
 
     return opportunities;
   } catch (error) {
-    console.error('Error detecting arbitrage:', error.message);
+    console.error('Error detecting wallet opportunities:', error.message);
     return [];
   }
 }
 
-// ===== EXECUTE TRADE =====
-function executeArbitrageTrade(opportunity) {
-  const tradeSize = Math.min(botState.balance * 0.2, 10);
+// ===== EXECUTE COPY TRADE =====
+function executeCopyTrade(opportunity) {
+  // Calculate trade size: min of (balance * %, max amount)
+  let tradeSize = Math.min(
+    botState.balance * POSITION_SIZE_PERCENT,
+    MAX_TRADE_SIZE
+  );
+
+  // Don't trade if insufficient balance
+  if (tradeSize > botState.balance * 0.5) {
+    tradeSize = botState.balance * 0.5;
+  }
+
+  // Entry at market price
+  const entryPrice = opportunity.tradePrice;
   
-  const buyPrice = opportunity.bidPrice;
-  const sellPrice = opportunity.askPrice;
+  // Simulate execution
+  const quantity = tradeSize / entryPrice;
   
-  const buyQuantity = tradeSize / buyPrice;
-  const sellProceeds = buyQuantity * sellPrice;
-  const profit = sellProceeds - tradeSize;
-  const profitPercent = (profit / tradeSize) * 100;
+  // Random exit (60-90% win rate to simulate real trading)
+  const winRate = Math.random();
+  let exitPrice;
+  let profit;
+  let status = 'completed';
+
+  if (winRate < 0.75) {
+    // 75% win rate - hit profit target (small profit)
+    const profitPercent = 1 + (Math.random() * 4); // 1-5% profit
+    exitPrice = entryPrice * (1 + profitPercent / 100);
+    profit = (exitPrice - entryPrice) * quantity;
+  } else if (winRate < 0.90) {
+    // 15% small loss
+    const lossPercent = Math.random() * 10; // 0-10% loss
+    exitPrice = entryPrice * (1 - lossPercent / 100);
+    profit = (exitPrice - entryPrice) * quantity;
+  } else {
+    // 10% hit stop loss (20% max)
+    exitPrice = entryPrice * (1 - STOP_LOSS_PERCENT / 100);
+    profit = (exitPrice - entryPrice) * quantity;
+    status = 'stopped';
+  }
 
   const trade = {
     id: `trade-${Date.now()}`,
     marketId: opportunity.marketId,
     marketName: opportunity.marketName,
-    type: 'arbitrage',
-    entryPrice: buyPrice,
-    exitPrice: sellPrice,
-    quantity: buyQuantity,
-    entryValue: tradeSize,
-    exitValue: sellProceeds,
-    profit,
-    profitPercent,
+    type: 'copy',
+    copiedFrom: opportunity.walletAddress.slice(0, 6) + '...',
+    entryPrice: parseFloat(entryPrice.toFixed(4)),
+    exitPrice: parseFloat(exitPrice.toFixed(4)),
+    quantity: parseFloat(quantity.toFixed(4)),
+    entryValue: parseFloat(tradeSize.toFixed(2)),
+    exitValue: parseFloat((quantity * exitPrice).toFixed(2)),
+    profit: parseFloat(profit.toFixed(2)),
+    profitPercent: parseFloat(((profit / tradeSize) * 100).toFixed(2)),
     timestamp: new Date(),
-    status: 'completed',
-    spreadExploited: opportunity.spreadPercent,
+    status,
   };
 
+  // Update balance
   botState.balance += profit;
   botState.totalProfit += profit;
   botState.totalTrades++;
 
+  // Track success rate
+  if (profit > 0) {
+    botState.successfulTrades++;
+  } else {
+    botState.failedTrades++;
+  }
+
+  // Track wallet metrics
+  if (!botState.walletMetrics[opportunity.walletAddress]) {
+    botState.walletMetrics[opportunity.walletAddress] = {
+      trades: 0,
+      wins: 0,
+      losses: 0,
+      totalProfit: 0,
+    };
+  }
+  botState.walletMetrics[opportunity.walletAddress].trades++;
+  if (profit > 0) {
+    botState.walletMetrics[opportunity.walletAddress].wins++;
+  } else {
+    botState.walletMetrics[opportunity.walletAddress].losses++;
+  }
+  botState.walletMetrics[opportunity.walletAddress].totalProfit += profit;
+
+  // Add to trade history
   botState.trades.unshift(trade);
   if (botState.trades.length > 100) botState.trades.pop();
 
@@ -133,27 +194,35 @@ async function monitorAndTrade() {
   if (!botState.running) return;
 
   try {
-    const opportunities = await detectArbitrageOpportunities();
+    const opportunities = await detectWalletOpportunities();
 
     for (const opportunity of opportunities) {
-      if (botState.balance > 5 && opportunity.spreadPercent > 1.2) {
-        const trade = executeArbitrageTrade(opportunity);
+      // Only execute if we have followed wallets
+      if (botState.followedWallets.length > 0 && botState.balance > 10) {
+        const trade = executeCopyTrade(opportunity);
         
         broadcastUpdate({
           type: 'new_trade',
           trade,
           balance: botState.balance,
           totalProfit: botState.totalProfit,
+          successRate: botState.totalTrades > 0 
+            ? ((botState.successfulTrades / botState.totalTrades) * 100).toFixed(1)
+            : 0,
         });
       }
     }
 
+    // Periodic status update
     broadcastUpdate({
       type: 'market_update',
-      opportunities: opportunities.slice(0, 5),
       balance: botState.balance,
       totalProfit: botState.totalProfit,
       totalTrades: botState.totalTrades,
+      successRate: botState.totalTrades > 0 
+        ? ((botState.successfulTrades / botState.totalTrades) * 100).toFixed(1)
+        : 0,
+      followedWallets: botState.followedWallets.length,
     });
   } catch (error) {
     console.error('Monitoring error:', error.message);
@@ -172,13 +241,21 @@ function broadcastUpdate(data) {
 
 // ===== API ENDPOINTS =====
 app.get('/api/status', (req, res) => {
+  const successRate = botState.totalTrades > 0 
+    ? ((botState.successfulTrades / botState.totalTrades) * 100).toFixed(1)
+    : 0;
+
   res.json({
     running: botState.running,
     balance: botState.balance,
     initialBalance: botState.initialBalance,
     totalProfit: botState.totalProfit,
     totalTrades: botState.totalTrades,
+    successfulTrades: botState.successfulTrades,
+    failedTrades: botState.failedTrades,
+    successRate: parseFloat(successRate),
     roi: ((botState.totalProfit / botState.initialBalance) * 100).toFixed(2),
+    followedWallets: botState.followedWallets.length,
   });
 });
 
@@ -195,12 +272,70 @@ app.get('/api/trades', (req, res) => {
   res.json(botState.trades);
 });
 
+app.get('/api/wallet-metrics', (req, res) => {
+  res.json(botState.walletMetrics);
+});
+
+app.post('/api/add-wallet', (req, res) => {
+  const { walletAddress } = req.body;
+
+  if (!walletAddress || !walletAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+    return res.status(400).json({ error: 'Invalid wallet address' });
+  }
+
+  if (botState.followedWallets.includes(walletAddress)) {
+    return res.status(400).json({ error: 'Wallet already being followed' });
+  }
+
+  botState.followedWallets.push(walletAddress);
+  botState.walletMetrics[walletAddress] = { trades: 0, wins: 0, losses: 0, totalProfit: 0 };
+
+  res.json({
+    status: 'added',
+    walletAddress,
+    followedWallets: botState.followedWallets,
+  });
+
+  broadcastUpdate({
+    type: 'wallet_added',
+    walletAddress,
+    followedWallets: botState.followedWallets.length,
+  });
+});
+
+app.post('/api/remove-wallet', (req, res) => {
+  const { walletAddress } = req.body;
+
+  const index = botState.followedWallets.indexOf(walletAddress);
+  if (index === -1) {
+    return res.status(400).json({ error: 'Wallet not being followed' });
+  }
+
+  botState.followedWallets.splice(index, 1);
+
+  res.json({
+    status: 'removed',
+    followedWallets: botState.followedWallets,
+  });
+
+  broadcastUpdate({
+    type: 'wallet_removed',
+    walletAddress,
+    followedWallets: botState.followedWallets.length,
+  });
+});
+
 app.post('/api/start', (req, res) => {
   if (botState.running) {
     return res.status(400).json({ error: 'Bot already running' });
   }
+
+  if (botState.followedWallets.length === 0) {
+    return res.status(400).json({ error: 'Add at least one wallet to follow' });
+  }
+
   botState.running = true;
-  res.json({ status: 'started', message: 'Bot is now monitoring markets' });
+  res.json({ status: 'started', message: 'Bot is now monitoring wallets' });
   broadcastUpdate({ type: 'bot_started' });
 });
 
@@ -214,6 +349,8 @@ app.post('/api/reset', (req, res) => {
   botState.balance = 50;
   botState.totalProfit = 0;
   botState.totalTrades = 0;
+  botState.successfulTrades = 0;
+  botState.failedTrades = 0;
   botState.trades = [];
   botState.running = false;
   res.json({ status: 'reset', message: 'Bot state has been reset' });
@@ -229,8 +366,15 @@ wss.on('connection', (ws) => {
     balance: botState.balance,
     totalProfit: botState.totalProfit,
     totalTrades: botState.totalTrades,
+    successfulTrades: botState.successfulTrades,
+    failedTrades: botState.failedTrades,
+    successRate: botState.totalTrades > 0 
+      ? ((botState.successfulTrades / botState.totalTrades) * 100).toFixed(1)
+      : 0,
     trades: botState.trades.slice(0, 20),
     running: botState.running,
+    followedWallets: botState.followedWallets,
+    walletMetrics: botState.walletMetrics,
   }));
 
   ws.on('close', () => {
@@ -250,9 +394,9 @@ setInterval(() => {
 // ===== START SERVER =====
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🤖 Polymarket Arbitrage Bot running on port ${PORT}`);
+  console.log(`🤖 Polymarket Wallet Tracker Bot running on port ${PORT}`);
   console.log(`📊 Starting balance: $${botState.initialBalance} CAD`);
   console.log(`⏱️  Checking markets every ${CHECK_INTERVAL}ms`);
-  console.log(`✅ API Key configured: ${!!POLYMARKET_API_KEY}`);
-  console.log(`✅ Wallet configured: ${!!WALLET_ADDRESS}`);
+  console.log(`💰 Max per trade: $${MAX_TRADE_SIZE}`);
+  console.log(`🛑 Stop loss: ${STOP_LOSS_PERCENT}%`);
 });
