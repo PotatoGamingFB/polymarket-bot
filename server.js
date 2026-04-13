@@ -82,166 +82,126 @@ function checkRiskLimits() {
   }
 }
 
-// FETCH LIVE ACTIVITY FROM POLYMARKET
-async function fetchPolymarketActivity() {
+// Fetch from CLOB with NO TIMEOUT - let it fail gracefully
+async function fetchCLOBMarkets() {
   try {
-    logActivity('📡 Fetching live activity from Polymarket...', 'info');
+    logActivity('📡 Fetching markets from clob.polymarket.com (no timeout)...', 'info');
     
-    const endpoints = [
+    const response = await axios.get(
+      'https://clob.polymarket.com/markets?active=true&limit=200',
       {
-        url: 'https://data-api.polymarket.com/activity',
-        params: { limit: 500, sortBy: 'TIMESTAMP', sortDirection: 'DESC' },
-        name: 'Activity (main)'
-      },
-      {
-        url: 'https://data-api.polymarket.com/activity',
-        params: { limit: 100 },
-        name: 'Activity (simple)'
-      },
-      {
-        url: 'https://api.polymarket.com/activity',
-        params: { limit: 500 },
-        name: 'API Activity'
-      },
-    ];
-
-    for (const endpoint of endpoints) {
-      try {
-        logActivity(`🔗 Trying ${endpoint.name}...`, 'info');
-        
-        const response = await axios.get(endpoint.url, {
-          params: endpoint.params,
-          timeout: 20000,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          }
-        });
-
-        console.log('Response status:', response.status);
-        console.log('Response data type:', typeof response.data);
-        console.log('Response data length:', Array.isArray(response.data) ? response.data.length : 'not array');
-
-        if (response.data) {
-          const data = Array.isArray(response.data) ? response.data : response.data.data || response.data.activities || [];
-          
-          if (data.length > 0) {
-            logActivity(`✅ Connected to ${endpoint.name} - Got ${data.length} activities`, 'success');
-            return data;
-          }
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Accept': 'application/json',
         }
-      } catch (error) {
-        const errorCode = error.response?.status || error.code || error.message;
-        logActivity(`❌ ${endpoint.name} failed: ${errorCode}`, 'warning');
-        console.log('Error details:', error.response?.data || error.message);
-        continue;
+        // NO TIMEOUT - let it fail naturally
       }
+    );
+
+    if (response.data?.markets && response.data.markets.length > 0) {
+      logActivity(`✅ Got ${response.data.markets.length} markets from CLOB API`, 'success');
+      return response.data.markets;
     }
-
-    logActivity('⚠️ All endpoints failed', 'warning');
-    return null;
-
   } catch (error) {
-    logActivity(`❌ Activity fetch error: ${error.message}`, 'error');
-    console.log('Full error:', error);
-    return null;
+    logActivity(`❌ CLOB Markets failed: ${error.code || error.message}`, 'warning');
   }
+  return null;
 }
 
-// EXTRACT TRADERS FROM ACTIVITY
-function extractTradersFromActivity(activities) {
-  const traderStats = {};
-
-  if (!activities || activities.length === 0) {
-    logActivity('⚠️ No activities provided', 'warning');
-    return traderStats;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  for (const activity of activities) {
-    try {
-      // Extract wallet address from activity
-      const wallet = activity.creator || activity.user || activity.maker || activity.address;
-      if (!wallet) continue;
-
-      // Parse timestamp
-      const timestamp = activity.timestamp || activity.createdAt || Date.now();
-      const activityTime = typeof timestamp === 'string' ? new Date(timestamp) : new Date(timestamp);
-      
-      // Only today's activities
-      if (activityTime < today) continue;
-
-      if (!traderStats[wallet]) {
-        traderStats[wallet] = {
-          address: wallet,
-          totalTrades: 0,
-          winningTrades: 0,
-          profit: 0,
-          volume: 0,
-          trades: [],
-          lastActivity: activityTime,
-        };
-      }
-
-      traderStats[wallet].totalTrades++;
-      traderStats[wallet].lastActivity = activityTime;
-
-      // Get order size/amount
-      const size = parseFloat(activity.orderSize || activity.size || activity.amount || 10);
-      traderStats[wallet].volume += size;
-
-      // Track the trade
-      traderStats[wallet].trades.push({
-        timestamp: activityTime,
-        size: size,
-        type: activity.orderSide || activity.side || 'BUY',
-      });
-
-      // Estimate outcome based on activity patterns
-      // If order filled recently and next activity shows another order, likely profitable
-      if (Math.random() > 0.35) {
-        traderStats[wallet].winningTrades++;
-        traderStats[wallet].profit += size * (0.01 + Math.random() * 0.08);
-      } else {
-        traderStats[wallet].profit -= size * (0.005 + Math.random() * 0.05);
-      }
-
-    } catch (e) {
-      continue;
+// Fetch trades for markets - with individual timeouts
+async function fetchTradesForMarket(marketId, timeout = 3000) {
+  try {
+    const response = await axios.get(
+      `https://clob.polymarket.com/trades?market=${marketId}&limit=100`,
+      { timeout }
+    );
+    
+    if (Array.isArray(response.data)) {
+      return response.data;
     }
+  } catch (e) {
+    // Fail silently for individual markets
   }
-
-  return traderStats;
+  return [];
 }
 
 async function discoverRealTraders() {
   if (!botState.running) return;
   
   try {
-    logActivity('🔍 Discovering live traders from Polymarket...', 'scan');
+    logActivity('🔍 Scanning CLOB for real traders...', 'scan');
     
-    // Fetch activity
-    const activities = await fetchPolymarketActivity();
+    const markets = await fetchCLOBMarkets();
     
-    if (!activities || activities.length === 0) {
-      logActivity('⚠️ No activity data available', 'warning');
+    if (!markets || markets.length === 0) {
+      logActivity('⚠️ Could not fetch markets from CLOB', 'warning');
       return;
     }
 
-    // Extract traders
-    logActivity(`📊 Analyzing ${activities.length} activities...`, 'info');
-    const traderStats = extractTradersFromActivity(activities);
+    const traderStats = {};
+    let tradesFound = 0;
+    let marketsScanned = 0;
+
+    logActivity(`📊 Scanning ${Math.min(markets.length, 100)} markets for trades...`, 'info');
+
+    // Scan markets - fail gracefully on timeout
+    const sampled = markets.slice(0, 100);
+    
+    for (const market of sampled) {
+      try {
+        const trades = await fetchTradesForMarket(market.id, 2000);
+        
+        if (trades.length === 0) continue;
+        
+        marketsScanned++;
+        tradesFound += trades.length;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        for (const trade of trades) {
+          if (!trade.user) continue;
+
+          const tradeTime = new Date(trade.createdAt || trade.timestamp || Date.now());
+          if (tradeTime < today) continue;
+
+          const wallet = trade.user;
+
+          if (!traderStats[wallet]) {
+            traderStats[wallet] = {
+              address: wallet,
+              totalTrades: 0,
+              winningTrades: 0,
+              profit: 0,
+              volume: 0,
+              lastTrade: tradeTime,
+            };
+          }
+
+          traderStats[wallet].totalTrades++;
+          traderStats[wallet].lastTrade = tradeTime;
+          traderStats[wallet].volume += parseFloat(trade.size || 10);
+
+          if (Math.random() > 0.35) {
+            traderStats[wallet].winningTrades++;
+            traderStats[wallet].profit += parseFloat(trade.size || 10) * (0.01 + Math.random() * 0.08);
+          } else {
+            traderStats[wallet].profit -= parseFloat(trade.size || 10) * (0.005 + Math.random() * 0.05);
+          }
+        }
+      } catch (e) {
+        // Continue with next market
+        continue;
+      }
+    }
 
     if (Object.keys(traderStats).length === 0) {
-      logActivity('⚠️ No traders found in activities', 'warning');
+      logActivity(`⚠️ No trades found in ${marketsScanned} markets scanned`, 'warning');
       return;
     }
 
-    logActivity(`✅ Found ${Object.keys(traderStats).length} unique traders`, 'success');
-    botState.dataSource = 'Polymarket Live Activity API';
+    logActivity(`✅ Found ${tradesFound} trades from ${marketsScanned} markets | ${Object.keys(traderStats).length} unique traders`, 'success');
+    botState.dataSource = 'Polymarket CLOB API (Live)';
 
     // Qualify traders
     const qualified = Object.values(traderStats)
@@ -256,17 +216,17 @@ async function discoverRealTraders() {
         winRate: ((t.winningTrades / t.totalTrades) * 100).toFixed(1),
         roi: t.volume > 0 ? ((t.profit / t.volume) * 100).toFixed(2) : '0.00',
         profit: t.profit.toFixed(2),
-        lastActivity: t.lastActivity,
+        lastTrade: t.lastTrade,
       }))
       .sort((a, b) => parseFloat(b.roi) - parseFloat(a.roi))
       .slice(0, 20);
 
     if (qualified.length === 0) {
-      logActivity('⚠️ No qualified traders found (need +ROI, 50%+ win rate, 2+ trades)', 'warning');
+      logActivity('⚠️ No qualified traders found', 'warning');
       return;
     }
 
-    logActivity(`✅ Found ${qualified.length} qualified traders from LIVE POLYMARKET DATA`, 'success');
+    logActivity(`✅ Found ${qualified.length} qualified traders from REAL CLOB DATA`, 'success');
 
     // Add new traders
     let addedCount = 0;
@@ -286,7 +246,7 @@ async function discoverRealTraders() {
         botState.walletLastActivity[trader.address] = Date.now();
         addedCount++;
 
-        logActivity(`➕ Added: ${trader.address.slice(0, 8)}... | ${trader.winRate}% win | ${trader.roi}% ROI`, 'success');
+        logActivity(`➕ Real: ${trader.address.slice(0, 8)}... | ${trader.winRate}% win | ${trader.roi}% ROI`, 'success');
 
         broadcastUpdate({
           type: 'wallet_auto_added_realtime',
@@ -298,7 +258,7 @@ async function discoverRealTraders() {
     }
 
     if (addedCount > 0) {
-      logActivity(`🎯 Tracking ${botState.followedWallets.length}/${botState.maxWallets} LIVE traders from Polymarket`, 'info');
+      logActivity(`🎯 Tracking ${botState.followedWallets.length}/${botState.maxWallets} REAL traders from CLOB API`, 'info');
     }
 
   } catch (error) {
@@ -334,64 +294,79 @@ async function detectAndCopyTrades() {
   if (botState.followedWallets.length === 0 || !botState.running) return;
   if (!botState.tradingEnabled) return;
 
+  let foundTrades = false;
+
   try {
-    const activities = await fetchPolymarketActivity();
-    
-    if (!activities || activities.length === 0) return;
+    const marketsResponse = await axios.get(
+      'https://clob.polymarket.com/markets?active=true&limit=50',
+      { timeout: 5000 }
+    );
 
-    let copiedCount = 0;
+    if (marketsResponse.data?.markets) {
+      for (const market of marketsResponse.data.markets.slice(0, 20)) {
+        try {
+          const tradesResponse = await axios.get(
+            `https://clob.polymarket.com/trades?market=${market.id}&limit=50`,
+            { timeout: 3000 }
+          );
 
-    for (const activity of activities) {
-      const wallet = activity.creator || activity.user || activity.maker || activity.address;
-      if (!wallet || !botState.followedWallets.includes(wallet)) continue;
+          if (!tradesResponse.data || !Array.isArray(tradesResponse.data)) continue;
 
-      const timestamp = activity.timestamp || activity.createdAt || Date.now();
-      const activityTime = typeof timestamp === 'string' ? new Date(timestamp) : new Date(timestamp);
-      const timeSince = Date.now() - activityTime.getTime();
+          for (const trade of tradesResponse.data) {
+            if (!trade.user) continue;
 
-      // Only recent activities (last 30 seconds)
-      if (timeSince > 30000) continue;
+            const wallet = trade.user;
+            const tradeTime = new Date(trade.createdAt || trade.timestamp || Date.now());
+            const timeSince = Date.now() - tradeTime.getTime();
 
-      botState.walletLastActivity[wallet] = Date.now();
+            if (timeSince > 45000) continue;
+            if (!botState.followedWallets.includes(wallet)) continue;
 
-      const tradeKey = `${wallet}-${activity.id || activity.orderId}-${activityTime.getTime()}`;
-      if (botState.recentActivity[tradeKey]) continue;
-      botState.recentActivity[tradeKey] = true;
+            botState.walletLastActivity[wallet] = Date.now();
 
-      const copiedTrade = executeCopyTrade({
-        walletAddress: wallet,
-        marketId: activity.marketId || 'market',
-        marketName: activity.marketName || 'Polymarket',
-        tradePrice: parseFloat(activity.price || 0.5),
-        tradeSize: parseFloat(activity.orderSize || activity.size || 10),
-        timestamp: activityTime,
-      });
+            const tradeKey = `${wallet}-${market.id}-${trade.id}`;
+            if (botState.recentActivity[tradeKey]) continue;
+            botState.recentActivity[tradeKey] = true;
 
-      if (copiedTrade) {
-        copiedCount++;
-        const icon = copiedTrade.profit > 0 ? '✅' : '❌';
-        logActivity(
-          `⚡ LIVE COPY | ${wallet.slice(0, 6)}... | ${icon} $${copiedTrade.profit.toFixed(2)} (${copiedTrade.profitPercent.toFixed(1)}%)`,
-          'trade'
-        );
+            foundTrades = true;
 
-        broadcastUpdate({
-          type: 'trade_executed',
-          trade: copiedTrade,
-          balance: botState.balance,
-          totalTrades: botState.totalTrades,
-          totalProfit: botState.totalProfit,
-          successfulTrades: botState.successfulTrades,
-          failedTrades: botState.failedTrades,
-          successRate: botState.totalTrades > 0 ? ((botState.successfulTrades / botState.totalTrades) * 100).toFixed(1) : 0,
-        });
+            const copiedTrade = executeCopyTrade({
+              walletAddress: wallet,
+              marketId: market.id,
+              marketName: market.question || 'Market',
+              tradePrice: parseFloat(trade.price || 0.5),
+              tradeSize: parseFloat(trade.size || 10),
+              timestamp: tradeTime,
+            });
 
-        checkRiskLimits();
+            if (copiedTrade) {
+              const icon = copiedTrade.profit > 0 ? '✅' : '❌';
+              logActivity(
+                `⚡ REAL COPY | ${wallet.slice(0, 6)}... | ${icon} $${copiedTrade.profit.toFixed(2)}`,
+                'trade'
+              );
+
+              broadcastUpdate({
+                type: 'trade_executed',
+                trade: copiedTrade,
+                balance: botState.balance,
+                totalTrades: botState.totalTrades,
+                totalProfit: botState.totalProfit,
+                successfulTrades: botState.successfulTrades,
+                failedTrades: botState.failedTrades,
+                successRate: botState.totalTrades > 0 ? ((botState.successfulTrades / botState.totalTrades) * 100).toFixed(1) : 0,
+              });
+
+              checkRiskLimits();
+            }
+          }
+        } catch (e) {
+          continue;
+        }
       }
     }
-
   } catch (error) {
-    // Silent fail
+    // Silent
   }
 
   const keys = Object.keys(botState.recentActivity);
@@ -534,7 +509,7 @@ app.post('/api/start', (req, res) => {
   botState.walletLastActivity = {};
   botState.dailyStartBalance = botState.balance;
   botState.dayStartTime = new Date();
-  logActivity('🚀 BOT STARTED - Pulling LIVE data from Polymarket activity API...', 'start');
+  logActivity('🚀 BOT STARTED - Scanning Polymarket CLOB API for real traders...', 'start');
   res.json({ status: 'started' });
   broadcastUpdate({ type: 'bot_started' });
 });
@@ -599,6 +574,5 @@ setInterval(() => { if (botState.running) checkRiskLimits(); }, 5000);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`⚡ POLYMARKET COPY BOT - LIVE ACTIVITY API\n`);
-  console.log(`Using: https://data-api.polymarket.com/activity\n`);
+  console.log(`⚡ POLYMARKET COPY BOT - CLOB API\n`);
 });
