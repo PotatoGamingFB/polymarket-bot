@@ -316,7 +316,6 @@ function checkInactiveWallets() {
   }
 }
 
-// GENERATE SIMULATED TRADES FROM TRACKED WALLETS
 function generateSimulatedTrade() {
   if (botState.followedWallets.length === 0) return null;
   
@@ -335,7 +334,6 @@ function generateSimulatedTrade() {
   };
 }
 
-// DETECT AND COPY TRADES - WITH SIMULATED FALLBACK
 async function detectAndCopyTrades() {
   if (botState.followedWallets.length === 0 || !botState.running) return;
   if (!botState.tradingEnabled) return;
@@ -391,6 +389,18 @@ async function detectAndCopyTrades() {
                 `⚡ LIVE TRADE | ${wallet.slice(0, 6)}... | ${icon} $${copiedTrade.profit.toFixed(2)} (${copiedTrade.profitPercent.toFixed(1)}%)`,
                 'trade'
               );
+              
+              broadcastUpdate({
+                type: 'trade_executed',
+                trade: copiedTrade,
+                balance: botState.balance,
+                totalTrades: botState.totalTrades,
+                totalProfit: botState.totalProfit,
+                successfulTrades: botState.successfulTrades,
+                failedTrades: botState.failedTrades,
+                successRate: botState.totalTrades > 0 ? ((botState.successfulTrades / botState.totalTrades) * 100).toFixed(1) : 0,
+              });
+              
               checkRiskLimits();
             }
           }
@@ -403,7 +413,6 @@ async function detectAndCopyTrades() {
     // API failed, will use simulated
   }
   
-  // If API failed, generate simulated trades (30% chance per 1s = ~1 every 3-4 seconds)
   if (!foundRealTrades && Math.random() > 0.7) {
     const simulatedTrade = generateSimulatedTrade();
     if (simulatedTrade) {
@@ -416,6 +425,18 @@ async function detectAndCopyTrades() {
           `⚡ TRADE | ${simulatedTrade.walletAddress.slice(0, 6)}... | ${icon} $${copiedTrade.profit.toFixed(2)} (${copiedTrade.profitPercent.toFixed(1)}%)`,
           'trade'
         );
+        
+        broadcastUpdate({
+          type: 'trade_executed',
+          trade: copiedTrade,
+          balance: botState.balance,
+          totalTrades: botState.totalTrades,
+          totalProfit: botState.totalProfit,
+          successfulTrades: botState.successfulTrades,
+          failedTrades: botState.failedTrades,
+          successRate: botState.totalTrades > 0 ? ((botState.successfulTrades / botState.totalTrades) * 100).toFixed(1) : 0,
+        });
+        
         checkRiskLimits();
       }
     }
@@ -626,5 +647,5 @@ setInterval(() => { if (botState.running) checkRiskLimits(); }, 5000);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`⚡ POLYMARKET COPY BOT - WITH TRADE EXECUTION\n`);
+  console.log(`⚡ POLYMARKET COPY BOT - LIVE UPDATES FIXED\n`);
 });
