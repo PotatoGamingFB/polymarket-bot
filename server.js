@@ -151,8 +151,12 @@ async function discoverWallets() {
       leaderboard = [];
       
       for (let i = 0; i < 20; i++) {
-        const randomBytes = Math.random().toString(16).substring(2, 10);
-        const address = `0x${randomBytes}${Math.random().toString(16).substring(2, 32)}`;
+        // Generate valid Ethereum address (0x + 40 hex chars)
+        let address = '0x';
+        for (let j = 0; j < 40; j++) {
+          address += Math.floor(Math.random() * 16).toString(16);
+        }
+        
         const winRate = 50 + Math.random() * 35; // 50-85%
         const trades = 5 + Math.floor(Math.random() * 20);
         const roi = (Math.random() * 30 - 5).toFixed(2); // -5% to +25%
