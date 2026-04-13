@@ -37,7 +37,7 @@ const CHECK_INTERVAL = 1000;
 const DISCOVERY_INTERVAL = 12000;
 const ACTIVITY_TIMEOUT = 60000;
 const MAX_TRADE_SIZE = 6;
-const STOP_LOSS_PERCENT = 20;
+const STOP_LOSS_PERCENT = 9;
 const POSITION_SIZE_PERCENT = 0.12;
 
 function broadcastUpdate(data) {
