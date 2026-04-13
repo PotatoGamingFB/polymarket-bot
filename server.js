@@ -85,29 +85,66 @@ function checkRiskLimits() {
 // FETCH LIVE ACTIVITY FROM POLYMARKET
 async function fetchPolymarketActivity() {
   try {
-    logActivity('📡 Fetching live activity from data-api.polymarket.com...', 'info');
+    logActivity('📡 Fetching live activity from Polymarket...', 'info');
     
-    const response = await axios.get(
-      'https://data-api.polymarket.com/activity?limit=500&sortBy=TIMESTAMP&sortDirection=DESC',
+    const endpoints = [
       {
-        timeout: 15000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-          'Accept': 'application/json',
-        }
-      }
-    );
+        url: 'https://data-api.polymarket.com/activity',
+        params: { limit: 500, sortBy: 'TIMESTAMP', sortDirection: 'DESC' },
+        name: 'Activity (main)'
+      },
+      {
+        url: 'https://data-api.polymarket.com/activity',
+        params: { limit: 100 },
+        name: 'Activity (simple)'
+      },
+      {
+        url: 'https://api.polymarket.com/activity',
+        params: { limit: 500 },
+        name: 'API Activity'
+      },
+    ];
 
-    if (!response.data || !Array.isArray(response.data)) {
-      logActivity('❌ Invalid response format', 'warning');
-      return null;
+    for (const endpoint of endpoints) {
+      try {
+        logActivity(`🔗 Trying ${endpoint.name}...`, 'info');
+        
+        const response = await axios.get(endpoint.url, {
+          params: endpoint.params,
+          timeout: 20000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          }
+        });
+
+        console.log('Response status:', response.status);
+        console.log('Response data type:', typeof response.data);
+        console.log('Response data length:', Array.isArray(response.data) ? response.data.length : 'not array');
+
+        if (response.data) {
+          const data = Array.isArray(response.data) ? response.data : response.data.data || response.data.activities || [];
+          
+          if (data.length > 0) {
+            logActivity(`✅ Connected to ${endpoint.name} - Got ${data.length} activities`, 'success');
+            return data;
+          }
+        }
+      } catch (error) {
+        const errorCode = error.response?.status || error.code || error.message;
+        logActivity(`❌ ${endpoint.name} failed: ${errorCode}`, 'warning');
+        console.log('Error details:', error.response?.data || error.message);
+        continue;
+      }
     }
 
-    logActivity(`✅ Got ${response.data.length} recent activities`, 'success');
-    return response.data;
+    logActivity('⚠️ All endpoints failed', 'warning');
+    return null;
 
   } catch (error) {
-    logActivity(`❌ Activity API Error: ${error.code || error.message}`, 'error');
+    logActivity(`❌ Activity fetch error: ${error.message}`, 'error');
+    console.log('Full error:', error);
     return null;
   }
 }
